@@ -157,6 +157,47 @@ Template versions of sensitive scripts should be used for documentation and dist
 
 ---
 
+# Roadmap
+
+## Version 1.x
+
+- [x] Castopod REST API enablement
+- [x] Cloudflare upload bypass
+- [x] Large file upload support
+- [x] Automatic episode publishing
+- [x] Environment variable configuration
+- [x] Git repository setup
+
+### Next Features
+
+- [ ] Health Check Page
+- [ ] Podcast Selector
+- [ ] Publish / Draft Toggle
+- [ ] Upload Progress Bar
+- [ ] Better Success Page
+- [ ] Embedded Documentation
+- [ ] Upload History
+- [ ] Backup Strategy Documentation
+
+### Research
+
+- [ ] Castopod Plugin Investigation
+- [ ] Castopod Administration & SEO Review
+
+## Version 2.x
+
+- [ ] AzuraCast Auto-Ingest
+- [ ] Traktor History Import
+- [ ] AI-Assisted Metadata Generation
+- [ ] AI Artwork Generation
+- [ ] Editorial Approval Workflow
+
+## Version 3.x
+
+- [ ] Social Media Asset Generation
+
+---
+
 # License
 
 Personal project developed for the Pacific Shift podcast ecosystem.
