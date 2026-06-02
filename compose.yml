@@ -1,0 +1,24 @@
+services:
+
+  publisher:
+
+    build: .
+
+    container_name: pacific-shift-publisher
+
+    environment:
+     API_USER: ${API_USER}
+     API_PASS: ${API_PASS}
+     CASTOPOD_URL: ${CASTOPOD_URL}
+
+    restart: unless-stopped
+
+    ports:
+      - "5000:5000"
+
+    networks:
+      - castopod_castopod-app
+
+networks:
+  castopod_castopod-app:
+    external: true

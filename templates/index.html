@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+    <title>Pacific Shift Publisher</title>
+</head>
+<body>
+
+<h1>Pacific Shift Publisher</h1>
+
+<form action="/upload" method="post" enctype="multipart/form-data">
+
+    <p>
+        Title<br>
+        <input type="text" name="title" size="60">
+    </p>
+
+    <p>
+        Description<br>
+        <textarea name="description"
+                  rows="10"
+                  cols="60"></textarea>
+    </p>
+
+    <p>
+        MP3 File<br>
+        <input type="file"
+               name="audio_file"
+               accept=".mp3">
+    </p>
+
+    <button type="submit">
+        Upload Episode
+    </button>
+
+</form>
+
+</body>
+</html>
