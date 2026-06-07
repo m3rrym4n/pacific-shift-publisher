@@ -2,35 +2,108 @@
 <html>
 <head>
     <title>Pacific Shift Publisher</title>
+    <style>
+        body {
+            max-width: 720px;
+            margin: 40px auto;
+            font-family: system-ui, sans-serif;
+            line-height: 1.4;
+        }
+
+        label {
+            display: block;
+            margin-top: 18px;
+            font-weight: 600;
+        }
+
+        input[type="text"],
+        textarea {
+            box-sizing: border-box;
+            width: 100%;
+            margin-top: 6px;
+            padding: 8px;
+        }
+
+        button {
+            margin-top: 18px;
+            padding: 10px 14px;
+        }
+
+        .notice {
+            padding: 12px;
+            border: 1px solid #ccc;
+            margin: 18px 0;
+        }
+
+        .error {
+            border-color: #b00020;
+            color: #b00020;
+        }
+
+        .success {
+            border-color: #147a35;
+            color: #147a35;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+    </style>
 </head>
 <body>
 
 <h1>Pacific Shift Publisher</h1>
 
+{% if success %}
+    <div class="notice success">{{ success }}</div>
+{% endif %}
+
+{% if error %}
+    <div class="notice error">{{ error }}</div>
+{% endif %}
+
+{% if errors %}
+    <div class="notice error">
+        <ul>
+            {% for item in errors %}
+                <li>{{ item }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+{% endif %}
+
+{% if detail %}
+    <pre>{{ detail }}</pre>
+{% endif %}
+
+{% if publish_detail %}
+    <pre>{{ publish_detail }}</pre>
+{% endif %}
+
 <form action="/upload" method="post" enctype="multipart/form-data">
 
-    <p>
-        Title<br>
-        <input type="text" name="title" size="60">
-    </p>
+    <label for="title">Title</label>
+    <input id="title"
+           type="text"
+           name="title"
+           value="{{ form.title if form else '' }}"
+           required>
 
-    <p>
-        Description<br>
-        <textarea name="description"
-                  rows="10"
-                  cols="60"></textarea>
-    </p>
+    <label for="description">Description</label>
+    <textarea id="description"
+              name="description"
+              rows="10"
+              required>{{ form.description if form else '' }}</textarea>
 
-    <p>
-        MP3 File<br>
-        <input type="file"
-               name="audio_file"
-               accept=".mp3">
-    </p>
+    <label for="audio_file">MP3 File</label>
+    <input id="audio_file"
+           type="file"
+           name="audio_file"
+           accept=".mp3,audio/mpeg"
+           required>
 
-    <button type="submit">
-        Upload Episode
-    </button>
+    <button type="submit">Upload Episode</button>
 
 </form>
 

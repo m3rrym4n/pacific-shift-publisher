@@ -1,21 +1,26 @@
 services:
-
   publisher:
-
     build: .
-
     container_name: pacific-shift-publisher
-
     environment:
-     API_USER: ${API_USER}
-     API_PASS: ${API_PASS}
-     CASTOPOD_URL: ${CASTOPOD_URL}
-
+      API_USER: ${API_USER}
+      API_PASS: ${API_PASS}
+      CASTOPOD_URL: ${CASTOPOD_URL}
+      PUBLIC_HOST: ${PUBLIC_HOST:-pacific-shift.com}
+      PODCAST_ID: ${PODCAST_ID:-1}
+      CREATED_BY: ${CREATED_BY:-1}
+      UPDATED_BY: ${UPDATED_BY:-1}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-3600}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-1024}
     restart: unless-stopped
-
     ports:
       - "5000:5000"
-
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       - castopod_castopod-app
 
