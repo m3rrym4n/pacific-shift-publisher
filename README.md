@@ -96,22 +96,6 @@ Upload an MP3 file, enter episode metadata, and publish directly to Castopod.
 
 ---
 
-# Current Status
-
-Version 1.0.0
-
-Validated capabilities:
-
-* Successful Castopod REST API integration
-* Automated episode creation
-* Automated episode publication
-* Large-file uploads greater than 100 MB
-* RSS feed generation and validation
-* Internal Docker network communication
-* Environment variable configuration
-
----
-
 # Technology Stack
 
 * Python
@@ -120,23 +104,6 @@ Validated capabilities:
 * Docker
 * Docker Compose
 * Castopod REST API
-
----
-
-# Future Enhancements
-
-Planned improvements include:
-
-* Health check page
-* Startup configuration validation
-* Upload progress bar
-* Draft vs Publish workflow
-* Upload history
-* Improved success pages
-* Embedded operational documentation
-* Castopod API recovery instructions
-* Castopod administration and SEO review
-* Exploration of Castopod 2.0 plugin capabilities
 
 ---
 
@@ -154,47 +121,6 @@ scripts/enable-restapi.sh
 ```
 
 Template versions of sensitive scripts should be used for documentation and distribution.
-
----
-
-# Roadmap
-
-## Version 1.x
-
-- [x] Castopod REST API enablement
-- [x] Cloudflare upload bypass
-- [x] Large file upload support
-- [x] Automatic episode publishing
-- [x] Environment variable configuration
-- [x] Git repository setup
-
-### Next Features
-
-- [ ] Health Check Page
-- [ ] Podcast Selector
-- [ ] Publish / Draft Toggle
-- [ ] Upload Progress Bar
-- [ ] Better Success Page
-- [ ] Embedded Documentation
-- [ ] Upload History
-- [ ] Backup Strategy Documentation
-
-### Research
-
-- [ ] Castopod Plugin Investigation
-- [ ] Castopod Administration & SEO Review
-
-## Version 2.x
-
-- [ ] AzuraCast Auto-Ingest
-- [ ] Traktor History Import
-- [ ] AI-Assisted Metadata Generation
-- [ ] AI Artwork Generation
-- [ ] Editorial Approval Workflow
-
-## Version 3.x
-
-- [ ] Social Media Asset Generation
 
 ---
 
