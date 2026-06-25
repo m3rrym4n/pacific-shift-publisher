@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -30,6 +31,193 @@ EVENT_STEP = {
 
 NOW_PLAYING_CLASS_KEY = "App\\Entity\\Api\\NowPlaying\\NowPlaying"
 WEBHOOK_EVENT_RUN_ID = "azuracast-webhook"
+WEBHOOK_DIAGNOSTIC_EVENT = "azuracast_webhook_diagnostics"
+FORM_JSON_FIELDS = ("payload", "json", "data", "np", "now_playing")
+
+
+def parse_azuracast_request(request):
+    raw_body = request.get_data(cache=True, as_text=True) or ""
+    diagnostics = {
+        "content_type": request.content_type,
+        "content_length": request.content_length,
+        "raw_body_present": bool(raw_body.strip()),
+        "form_keys": safe_form_keys(request.form),
+        "json_parse_method": "failed",
+        "json_value_type": "null",
+    }
+
+    payload = request.get_json(silent=True)
+    if payload is not None:
+        diagnostics["json_parse_method"] = "request_json"
+        diagnostics["json_value_type"] = json_value_type(payload)
+        return payload, diagnostics
+
+    if raw_body.strip():
+        try:
+            payload = json.loads(raw_body)
+        except json.JSONDecodeError:
+            payload = None
+        else:
+            diagnostics["json_parse_method"] = "raw_body_json"
+            diagnostics["json_value_type"] = json_value_type(payload)
+            return payload, diagnostics
+
+    payload = _payload_from_form(request.form)
+    if payload is not None:
+        diagnostics["json_parse_method"] = "form_json"
+        diagnostics["json_value_type"] = json_value_type(payload)
+        return payload, diagnostics
+
+    return None, diagnostics
+
+
+def _payload_from_form(form):
+    if not form:
+        return None
+    for field_name in FORM_JSON_FIELDS:
+        if field_name not in form:
+            continue
+        value = _decode_json_string(form.get(field_name))
+        if isinstance(value, dict):
+            return {"np": value} if field_name in {"np", "now_playing"} and "np" not in value else value
+
+    if len(form) == 1:
+        key = next(iter(form.keys()))
+        value = _decode_json_string(key)
+        if isinstance(value, dict):
+            return value
+        value = _decode_json_string(form.get(key))
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def safe_form_keys(form):
+    if not form:
+        return []
+    keys = []
+    for key in sorted(form.keys()):
+        text = str(key).strip()
+        if len(text) > 80 or text.startswith(("{", "[")):
+            keys.append("[redacted_form_key]")
+        else:
+            keys.append(text)
+    return keys
+
+
+def build_webhook_diagnostics(payload=None, request_diagnostics=None, result=None, parser_decision=None, parser_reason=None):
+    diagnostics = dict(request_diagnostics or {})
+    diagnostics.setdefault("content_type", None)
+    diagnostics.setdefault("content_length", None)
+    diagnostics.setdefault("raw_body_present", False)
+    diagnostics.setdefault("json_parse_method", "failed")
+    diagnostics["json_value_type"] = json_value_type(payload)
+    diagnostics["top_level_keys"] = sorted(payload.keys()) if isinstance(payload, dict) else []
+    diagnostics["top_level_value_types"] = (
+        {key: json_value_type(value) for key, value in sorted(payload.items())}
+        if isinstance(payload, dict)
+        else {}
+    )
+
+    shape = describe_now_playing_shape(payload)
+    diagnostics.update(shape)
+    diagnostics["parser_decision"] = parser_decision or (result or {}).get("parser_decision") or "unsupported"
+    diagnostics["parser_reason"] = parser_reason or (result or {}).get("parser_reason") or shape["parser_reason"]
+    return diagnostics
+
+
+def describe_now_playing_shape(payload):
+    shape = {
+        "np_value_type": "missing",
+        "np_present": False,
+        "np_keys": [],
+        "candidate_nowplaying_paths": [],
+        "station_name": None,
+        "station_shortcode": None,
+        "live_is_live": None,
+        "live_streamer_name_present": False,
+        "now_playing_streamer_present": False,
+        "song_history_count": None,
+        "parser_reason": "No JSON object payload was available.",
+    }
+    if not isinstance(payload, dict):
+        return shape
+
+    np_value = payload.get("np")
+    decoded_np = _decode_json_string(np_value)
+    shape["np_present"] = "np" in payload
+    shape["np_value_type"] = json_value_type(decoded_np) if "np" in payload else "missing"
+    if isinstance(decoded_np, dict):
+        shape["np_keys"] = sorted(decoded_np.keys())
+
+    match = find_now_playing_candidate(payload)
+    shape["parser_reason"] = match["reason"]
+    if match["path"]:
+        shape["candidate_nowplaying_paths"] = [match["path"]]
+    candidate = match["candidate"]
+    if not isinstance(candidate, dict):
+        return shape
+
+    station = candidate.get("station") if isinstance(candidate.get("station"), dict) else {}
+    live = candidate.get("live") if isinstance(candidate.get("live"), dict) else {}
+    now_playing = candidate.get("now_playing") if isinstance(candidate.get("now_playing"), dict) else {}
+    song_history = candidate.get("song_history") if isinstance(candidate.get("song_history"), list) else None
+    shape.update(
+        {
+            "station_name": clean_text(station.get("name")),
+            "station_shortcode": clean_text(station.get("shortcode")),
+            "live_is_live": bool(live.get("is_live")),
+            "live_streamer_name_present": bool(clean_text(live.get("streamer_name"))),
+            "now_playing_streamer_present": bool(clean_text(now_playing.get("streamer"))),
+            "song_history_count": len(song_history) if song_history is not None else None,
+        }
+    )
+    return shape
+
+
+def emit_webhook_diagnostics(payload=None, request_diagnostics=None, result=None, parser_decision=None, parser_reason=None, event_store=None):
+    event_store = event_store or get_pipeline_logger()
+    diagnostics = build_webhook_diagnostics(
+        payload=payload,
+        request_diagnostics=request_diagnostics,
+        result=result,
+        parser_decision=parser_decision,
+        parser_reason=parser_reason,
+    )
+    run = (result or {}).get("run")
+    decision = diagnostics["parser_decision"]
+    status = "failed" if decision in {"invalid_json", "unsupported"} else "success"
+    step_key = "stream_end" if decision in {"recognized_live_stop", "recognized_lifecycle_stop"} else "stream_start"
+    event_store.emit(
+        run_id=run["run_id"] if run else WEBHOOK_EVENT_RUN_ID,
+        session_id=(
+            run.get("session_id")
+            if run
+            else diagnostics.get("station_shortcode") or diagnostics.get("station_name")
+        ),
+        step_key=step_key,
+        event_name=WEBHOOK_DIAGNOSTIC_EVENT,
+        status=status,
+        message="AzuraCast webhook request diagnostics.",
+        details=diagnostics,
+        level="ERROR" if status == "failed" else "INFO",
+    )
+
+
+def json_value_type(value):
+    if isinstance(value, dict):
+        return "object"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, str):
+        return "string"
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    return type(value).__name__
 
 
 def normalize_event_type(payload):
@@ -51,9 +239,13 @@ def normalize_event_type(payload):
 
 def parse_webhook_payload(payload, received_at=None):
     received_at = received_at or utc_now()
-    now_playing = extract_now_playing_payload(payload)
+    now_playing_match = find_now_playing_candidate(payload)
+    now_playing = now_playing_match["candidate"]
     if now_playing:
-        return parse_now_playing_payload(payload, now_playing, received_at)
+        parsed = parse_now_playing_payload(payload, now_playing, received_at)
+        parsed["parser_reason"] = now_playing_match["reason"]
+        parsed["candidate_nowplaying_path"] = now_playing_match["path"]
+        return parsed
 
     event_type = normalize_event_type(payload)
     timestamp = parse_timestamp(
@@ -102,24 +294,83 @@ def parse_webhook_payload(payload, received_at=None):
         "payload_kind": "lifecycle",
         "is_live": None,
         "station_shortcode": None,
+        "parser_reason": "Lifecycle event payload parsed." if event_type else "Unsupported event type.",
+        "candidate_nowplaying_path": None,
     }
 
 
 def extract_now_playing_payload(payload):
+    return find_now_playing_candidate(payload)["candidate"]
+
+
+def find_now_playing_candidate(payload):
     if not isinstance(payload, dict):
-        return None
+        return _now_playing_match(None, None, "Payload was not an object.")
+
+    direct = _candidate_if_now_playing(payload, "root")
+    if direct["candidate"]:
+        return direct
+
     wrapper = payload.get("np")
-    if not isinstance(wrapper, dict):
-        return None
-    if isinstance(wrapper.get("station"), dict) and isinstance(wrapper.get("live"), dict):
-        return wrapper
-    candidate = wrapper.get(NOW_PLAYING_CLASS_KEY)
-    if isinstance(candidate, dict):
-        return candidate
-    for value in wrapper.values():
-        if isinstance(value, dict) and isinstance(value.get("station"), dict) and isinstance(value.get("live"), dict):
-            return value
-    return None
+    wrapper = _decode_json_string(wrapper)
+    if isinstance(wrapper, dict):
+        direct_wrapper = _candidate_if_now_playing(wrapper, "np")
+        if direct_wrapper["candidate"]:
+            return direct_wrapper
+
+        class_candidate = _decode_json_string(wrapper.get(NOW_PLAYING_CLASS_KEY))
+        if isinstance(class_candidate, dict):
+            matched = _candidate_if_now_playing(class_candidate, f"np.{NOW_PLAYING_CLASS_KEY}")
+            if matched["candidate"]:
+                return matched
+
+        for key, value in wrapper.items():
+            value = _decode_json_string(value)
+            if isinstance(value, dict):
+                matched = _candidate_if_now_playing(value, f"np.{key}")
+                if matched["candidate"]:
+                    return matched
+
+    for key, value in payload.items():
+        if key == "np":
+            continue
+        value = _decode_json_string(value)
+        if isinstance(value, dict):
+            nested = find_now_playing_candidate(value)
+            if nested["candidate"]:
+                nested["path"] = f"{key}.{nested['path']}" if nested["path"] else key
+                nested["reason"] = f"recognized Now Playing payload under {nested['path']}"
+                return nested
+
+    if "np" in payload:
+        return _now_playing_match(None, None, "np key was present, but no station/live Now Playing object was found.")
+    return _now_playing_match(None, None, "np key missing and no lifecycle event matched.")
+
+
+def _candidate_if_now_playing(value, path):
+    if (
+        isinstance(value, dict)
+        and isinstance(value.get("station"), dict)
+        and isinstance(value.get("live"), dict)
+    ):
+        return _now_playing_match(value, path, f"recognized Now Playing payload under {path}")
+    return _now_playing_match(None, None, "station/live missing from candidate object.")
+
+
+def _now_playing_match(candidate, path, reason):
+    return {"candidate": candidate, "path": path, "reason": reason}
+
+
+def _decode_json_string(value):
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text or text[0] not in "[{":
+        return value
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return value
 
 
 def parse_now_playing_payload(payload, now_playing, received_at):
@@ -188,6 +439,8 @@ def handle_azuracast_webhook(payload, store=None, event_store=None):
             "message": "Unsupported AzuraCast webhook event.",
             "event_type": None,
             "run": None,
+            "parser_decision": "unsupported",
+            "parser_reason": parsed["parser_reason"],
         }
 
     if parsed["event_type"] == "streamer_start":
@@ -261,6 +514,12 @@ def _handle_streamer_start(parsed, store, event_store):
         "event_type": parsed["event_type"],
         "run": run,
         "duplicate": duplicate,
+        "parser_decision": (
+            "recognized_live_start"
+            if parsed["payload_kind"] == "now_playing"
+            else "recognized_lifecycle_start"
+        ),
+        "parser_reason": parsed["parser_reason"],
     }
 
 
@@ -325,6 +584,12 @@ def _handle_streamer_stop(parsed, store, event_store):
         "run": run,
         "duplicate": duplicate,
         "out_of_order": out_of_order,
+        "parser_decision": (
+            "recognized_live_stop"
+            if parsed["payload_kind"] == "now_playing"
+            else "recognized_lifecycle_stop"
+        ),
+        "parser_reason": parsed["parser_reason"],
     }
 
 
@@ -357,6 +622,8 @@ def _handle_now_playing_non_live(parsed, store, event_store):
         "message": "Now Playing payload is not live; no active run matched.",
         "event_type": "now_playing_non_live",
         "run": None,
+        "parser_decision": "recognized_non_live",
+        "parser_reason": parsed["parser_reason"],
     }
 
 

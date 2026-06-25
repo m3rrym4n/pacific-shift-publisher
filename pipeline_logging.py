@@ -30,6 +30,8 @@ def sanitize_log_value(value):
         return [sanitize_log_value(item) for item in value]
     if value is None:
         return None
+    if isinstance(value, (bool, int, float)):
+        return value
 
     sanitized = str(value)
     for pattern in SECRET_PATTERNS:
@@ -158,7 +160,7 @@ class StructuredPipelineLogger:
             level="ERROR",
         )
 
-    def find_events(self, run_id=None, session_id=None, step_key=None):
+    def find_events(self, run_id=None, session_id=None, step_key=None, event_name=None):
         self.initialize()
         clauses = []
         params = []
@@ -172,6 +174,9 @@ class StructuredPipelineLogger:
             self._validate_step_key(step_key)
             clauses.append("step_key = ?")
             params.append(step_key)
+        if event_name:
+            clauses.append("event_name = ?")
+            params.append(event_name)
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with closing(self.connect()) as connection:

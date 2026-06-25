@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import tempfile
@@ -7,7 +6,11 @@ import requests
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
-from azuracast_webhook import handle_azuracast_webhook
+from azuracast_webhook import (
+    emit_webhook_diagnostics,
+    handle_azuracast_webhook,
+    parse_azuracast_request,
+)
 from dashboard import build_dashboard_view_model
 from navigation import get_navigation
 from pipeline_logging import get_pipeline_logger
@@ -173,24 +176,28 @@ def pipeline_events():
         run_id=request.args.get("run_id"),
         session_id=request.args.get("session_id"),
         step_key=request.args.get("step_key"),
+        event_name=request.args.get("event_name"),
     )
     return jsonify({"events": events}), 200
 
 
 @app.route("/api/webhooks/azuracast", methods=["POST"])
 def azuracast_webhook():
-    payload = request.get_json(silent=True)
-    if payload is None:
-        raw_body = request.get_data(cache=True, as_text=True).strip()
-        if raw_body:
-            try:
-                payload = json.loads(raw_body)
-            except json.JSONDecodeError:
-                payload = None
+    payload, request_diagnostics = parse_azuracast_request(request)
     if not isinstance(payload, dict):
+        emit_webhook_diagnostics(
+            request_diagnostics=request_diagnostics,
+            parser_decision="invalid_json",
+            parser_reason="Request body could not be parsed as a JSON object.",
+        )
         return jsonify({"ok": False, "message": "Invalid JSON payload."}), 400
 
     result = handle_azuracast_webhook(payload)
+    emit_webhook_diagnostics(
+        payload=payload,
+        request_diagnostics=request_diagnostics,
+        result=result,
+    )
     return jsonify(
         {
             "ok": result["ok"],

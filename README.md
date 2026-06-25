@@ -150,6 +150,14 @@ Supported normalized events are `streamer_start` and `streamer_stop`. A start ev
 
 Publisher also accepts AzuraCast Now Playing webhook payloads wrapped under `np -> App\Entity\Api\NowPlaying\NowPlaying`. Non-live Now Playing payloads are accepted as a known no-op when no active run exists. Live Now Playing payloads create or update an active run using station, streamer, and `live.broadcast_start` when available; a later non-live Now Playing payload closes the matching active run.
 
+Every AzuraCast webhook request emits a sanitized diagnostic event named `azuracast_webhook_diagnostics`. Inspect recent diagnostics with:
+
+```text
+GET /api/pipeline-events?event_name=azuracast_webhook_diagnostics
+```
+
+Diagnostics include request shape fields such as content type, content length, JSON parse method, form keys, top-level keys and value types, `np` presence/type/keys, candidate Now Playing paths, station fields, streamer-presence flags, parser decision, and parser reason. They intentionally do not store raw request bodies, authorization headers, cookies, token values, or full song history payloads.
+
 Example start payload:
 
 ```json

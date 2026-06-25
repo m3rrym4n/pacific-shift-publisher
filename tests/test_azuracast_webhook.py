@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -46,6 +47,11 @@ class AzuraCastWebhookTest(unittest.TestCase):
         self.assertEqual(run["started_at"], "2026-06-24T22:00:00+00:00")
         self.assertEqual(run["overall_status"], "in_progress")
         self.assertEqual(self._step(run, "stream_start")["status"], "success")
+        diagnostics = self._latest_diagnostics()
+        self.assertEqual(diagnostics["parser_decision"], "recognized_lifecycle_start")
+        self.assertEqual(diagnostics["json_parse_method"], "request_json")
+        self.assertEqual(diagnostics["content_type"], "application/json")
+        self.assertIn("event", diagnostics["top_level_keys"])
 
     def test_streamer_stop_correlates_to_started_session(self):
         self._post_start()
@@ -167,6 +173,11 @@ class AzuraCastWebhookTest(unittest.TestCase):
         self.assertEqual(invalid.status_code, 400)
         self.assertEqual(unknown.status_code, 400)
         self.assertEqual(self.store.get_recent_runs(), [])
+        diagnostics = self.events.find_events(event_name="azuracast_webhook_diagnostics")
+        self.assertEqual(diagnostics[-2]["details"]["parser_decision"], "invalid_json")
+        self.assertEqual(diagnostics[-2]["details"]["json_parse_method"], "failed")
+        self.assertEqual(diagnostics[-1]["details"]["parser_decision"], "unsupported")
+        self.assertIn("parser_reason", diagnostics[-1]["details"])
 
     def test_missing_timestamp_falls_back_to_receipt_time(self):
         response = self.client.post(
@@ -207,7 +218,7 @@ class AzuraCastWebhookTest(unittest.TestCase):
     def test_now_playing_non_live_returns_200_without_fake_run(self):
         response = self.client.post(
             "/api/webhooks/azuracast",
-            json=self._now_playing_payload(is_live=False),
+            json=self._realistic_now_playing_payload(is_live=False),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -217,17 +228,86 @@ class AzuraCastWebhookTest(unittest.TestCase):
         event_names = [event["event_name"] for event in self.events.find_events()]
         self.assertIn("azuracast_nowplaying_received", event_names)
         self.assertIn("azuracast_nowplaying_non_live", event_names)
+        diagnostics = self._latest_diagnostics()
+        self.assertEqual(diagnostics["parser_decision"], "recognized_non_live")
+        self.assertEqual(diagnostics["json_parse_method"], "request_json")
+        self.assertEqual(diagnostics["top_level_keys"], ["np"])
+        self.assertEqual(diagnostics["top_level_value_types"], {"np": "object"})
+        self.assertTrue(diagnostics["np_present"])
+        self.assertEqual(diagnostics["np_value_type"], "object")
+        self.assertEqual(diagnostics["np_keys"], ["App\\Entity\\Api\\NowPlaying\\NowPlaying"])
+        self.assertEqual(
+            diagnostics["candidate_nowplaying_paths"],
+            ["np.App\\Entity\\Api\\NowPlaying\\NowPlaying"],
+        )
+        self.assertEqual(diagnostics["station_name"], "Storm Surge")
+        self.assertEqual(diagnostics["station_shortcode"], "storm_surge")
+        self.assertFalse(diagnostics["live_is_live"])
+        self.assertFalse(diagnostics["live_streamer_name_present"])
+        self.assertTrue(diagnostics["now_playing_streamer_present"])
+        self.assertEqual(diagnostics["song_history_count"], 1)
+        self.assertIn("recognized Now Playing payload", diagnostics["parser_reason"])
 
     def test_now_playing_non_live_without_json_content_type_returns_200(self):
         response = self.client.post(
             "/api/webhooks/azuracast",
-            data=self._now_playing_payload_json(is_live=False),
+            data=self._realistic_now_playing_payload_json(is_live=False),
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["event_type"], "now_playing_non_live")
         self.assertIsNone(response.get_json()["run_id"])
         self.assertEqual(self.store.get_recent_runs(), [])
+        diagnostics = self._latest_diagnostics()
+        self.assertEqual(diagnostics["json_parse_method"], "raw_body_json")
+        self.assertEqual(diagnostics["form_keys"], [])
+        self.assertNotIn("OutKast-Prototype", str(diagnostics))
+
+    def test_now_playing_urlencoded_raw_json_redacts_form_key(self):
+        response = self.client.post(
+            "/api/webhooks/azuracast",
+            data=self._realistic_now_playing_payload_json(is_live=False),
+            content_type="application/x-www-form-urlencoded",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["event_type"], "now_playing_non_live")
+        self.assertEqual(self.store.get_recent_runs(), [])
+        diagnostics = self._latest_diagnostics()
+        self.assertEqual(diagnostics["json_parse_method"], "raw_body_json")
+        self.assertEqual(diagnostics["form_keys"], ["[redacted_form_key]"])
+        self.assertNotIn("OutKast-Prototype", str(diagnostics))
+
+    def test_now_playing_form_json_payload_returns_200(self):
+        response = self.client.post(
+            "/api/webhooks/azuracast",
+            data={"payload": self._realistic_now_playing_payload_json(is_live=False)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["event_type"], "now_playing_non_live")
+        self.assertEqual(self.store.get_recent_runs(), [])
+        diagnostics = self._latest_diagnostics()
+        self.assertEqual(diagnostics["json_parse_method"], "form_json")
+        self.assertEqual(diagnostics["form_keys"], ["payload"])
+        self.assertTrue(diagnostics["np_present"])
+
+    def test_now_playing_np_json_string_payload_returns_200(self):
+        payload = self._realistic_now_playing_payload(is_live=False)
+        response = self.client.post(
+            "/api/webhooks/azuracast",
+            json={"np": json.dumps(payload["np"])},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["event_type"], "now_playing_non_live")
+        self.assertEqual(self.store.get_recent_runs(), [])
+        diagnostics = self._latest_diagnostics()
+        self.assertEqual(diagnostics["np_value_type"], "object")
+        self.assertEqual(
+            diagnostics["candidate_nowplaying_paths"],
+            ["np.App\\Entity\\Api\\NowPlaying\\NowPlaying"],
+        )
 
     def test_now_playing_direct_np_payload_shape_returns_200(self):
         payload = self._now_playing_payload(is_live=False)
@@ -331,6 +411,39 @@ class AzuraCastWebhookTest(unittest.TestCase):
         self.assertNotIn("super-secret", serialized)
         self.assertNotIn("Bearer hidden", serialized)
 
+    def test_diagnostics_do_not_store_raw_payload_or_sensitive_values(self):
+        payload = self._realistic_now_playing_payload(is_live=False)
+        response = self.client.post(
+            "/api/webhooks/azuracast",
+            json=payload,
+            headers={
+                "Authorization": "Bearer hidden",
+                "Cookie": "session=secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        diagnostics_event = self.events.find_events(event_name="azuracast_webhook_diagnostics")[-1]
+        serialized = str(diagnostics_event)
+        self.assertNotIn("OutKast-Prototype", serialized)
+        self.assertNotIn("Technimatic", serialized)
+        self.assertNotIn("Bearer hidden", serialized)
+        self.assertNotIn("session=secret", serialized)
+        self.assertNotIn("song_history", diagnostics_event["details"])
+
+    def test_pipeline_events_can_filter_webhook_diagnostics_by_event_name(self):
+        self.client.post(
+            "/api/webhooks/azuracast",
+            json=self._realistic_now_playing_payload(is_live=False),
+        )
+
+        response = self.client.get("/api/pipeline-events?event_name=azuracast_webhook_diagnostics")
+
+        self.assertEqual(response.status_code, 200)
+        events = response.get_json()["events"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event_name"], "azuracast_webhook_diagnostics")
+
     def _post_start(self):
         return self.client.post(
             "/api/webhooks/azuracast",
@@ -367,9 +480,66 @@ class AzuraCastWebhookTest(unittest.TestCase):
         }
 
     def _now_playing_payload_json(self, is_live):
-        import json
-
         return json.dumps(self._now_playing_payload(is_live=is_live))
+
+    def _realistic_now_playing_payload(self, is_live):
+        return {
+            "np": {
+                "App\\Entity\\Api\\NowPlaying\\NowPlaying": {
+                    "station": {
+                        "id": 1,
+                        "name": "Storm Surge",
+                        "shortcode": "storm_surge",
+                        "timezone": "America/Los_Angeles",
+                    },
+                    "listeners": {
+                        "total": 0,
+                        "unique": 0,
+                        "current": 0,
+                    },
+                    "live": {
+                        "is_live": is_live,
+                        "streamer_name": "SeaCapn" if is_live else "",
+                        "broadcast_start": "2026-06-24T22:00:00Z" if is_live else None,
+                        "art": None,
+                    },
+                    "now_playing": {
+                        "sh_id": 97,
+                        "played_at": 1781935248,
+                        "duration": 0,
+                        "playlist": "",
+                        "streamer": "SeaCapn",
+                        "is_request": False,
+                        "song": {
+                            "text": "OutKast-Prototype (Kalum Bootleg)",
+                            "artist": "",
+                            "title": "OutKast-Prototype (Kalum Bootleg)",
+                        },
+                    },
+                    "song_history": [
+                        {
+                            "sh_id": 96,
+                            "played_at": 1781935116,
+                            "duration": 132,
+                            "streamer": "SeaCapn",
+                            "song": {
+                                "text": "Technimatic - Unity (Original Mix)",
+                                "artist": "Technimatic",
+                                "title": "Unity (Original Mix)",
+                            },
+                        }
+                    ],
+                    "is_online": True,
+                    "cache": None,
+                }
+            }
+        }
+
+    def _realistic_now_playing_payload_json(self, is_live):
+        return json.dumps(self._realistic_now_playing_payload(is_live=is_live))
+
+    def _latest_diagnostics(self):
+        return self.events.find_events(event_name="azuracast_webhook_diagnostics")[-1]["details"]
 
     def _step(self, run, step_key):
         return next(step for step in run["steps"] if step["step_key"] == step_key)
