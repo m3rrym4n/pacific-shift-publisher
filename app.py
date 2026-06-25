@@ -7,6 +7,7 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
 from navigation import get_navigation
+from pipeline_logging import get_pipeline_logger
 from pipeline_state import get_pipeline_store
 
 app = Flask(__name__)
@@ -158,6 +159,16 @@ def latest_pipeline_run():
     if not run:
         return jsonify({"run": None}), 200
     return jsonify({"run": run}), 200
+
+
+@app.route("/api/pipeline-events")
+def pipeline_events():
+    events = get_pipeline_logger().find_events(
+        run_id=request.args.get("run_id"),
+        session_id=request.args.get("session_id"),
+        step_key=request.args.get("step_key"),
+    )
+    return jsonify({"events": events}), 200
 
 
 @app.route("/upload", methods=["POST"])

@@ -1,35 +1,13 @@
 import os
-import re
 import sqlite3
 import uuid
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-
-PIPELINE_STEP_KEYS = (
-    "stream_start",
-    "stream_end",
-    "acquire_mp3",
-    "acquire_tracklist",
-    "assemble_episode",
-    "post_castopod_draft",
-)
-
-PIPELINE_STATUSES = (
-    "pending",
-    "waiting",
-    "in_progress",
-    "success",
-    "failed",
-    "skipped",
-)
+from pipeline_constants import PIPELINE_STATUSES, PIPELINE_STEP_KEYS
 
 TERMINAL_STATUSES = {"success", "failed", "skipped"}
-SECRET_PATTERNS = (
-    re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)=([^\s]+)"),
-    re.compile(r"(?i)(bearer)\s+[^\s]+"),
-)
 
 
 def utc_now():
@@ -38,16 +16,6 @@ def utc_now():
 
 def default_db_path():
     return os.getenv("PUBLISHER_STATE_DB", "/app/data/publisher_state.sqlite")
-
-
-def sanitize_error_text(value):
-    if not value:
-        return value
-
-    sanitized = str(value)
-    for pattern in SECRET_PATTERNS:
-        sanitized = pattern.sub(lambda match: f"{match.group(1)}=[redacted]", sanitized)
-    return sanitized
 
 
 class PipelineStateStore:
@@ -113,6 +81,8 @@ class PipelineStateStore:
         recording_reference=None,
         run_id=None,
     ):
+        from pipeline_logging import StructuredPipelineLogger
+
         self.initialize()
         now = utc_now()
         run_id = run_id or str(uuid.uuid4())
@@ -154,7 +124,21 @@ class PipelineStateStore:
                     (run_id, step_key, "pending", sort_order, now, now),
                 )
 
-        return self.get_run(run_id)
+        run = self.get_run(run_id)
+        StructuredPipelineLogger(self.db_path).emit(
+            run_id=run["run_id"],
+            session_id=run["session_id"],
+            step_key="stream_start",
+            event_name="pipeline_run.created",
+            status=run["overall_status"],
+            message="Pipeline run created.",
+            details={
+                "station": run["station"],
+                "show_name": run["show_name"],
+                "streamer": run["streamer"],
+            },
+        )
+        return run
 
     def get_run(self, run_id):
         self.initialize()
@@ -269,8 +253,10 @@ class PipelineStateStore:
         started_at = started_at or (now if status == "in_progress" else None)
         ended_at = ended_at or (now if status in TERMINAL_STATUSES else None)
         duration_ms = self._duration_ms(started_at, ended_at)
-        error_details = sanitize_error_text(error_details)
-        error_summary = sanitize_error_text(message or error_details) if status == "failed" else None
+        from pipeline_logging import StructuredPipelineLogger, sanitize_log_value
+
+        error_details = sanitize_log_value(error_details)
+        error_summary = sanitize_log_value(message or error_details) if status == "failed" else None
         overall_status = "failed" if status == "failed" else existing["overall_status"]
 
         with closing(self.connect()) as connection:
@@ -322,7 +308,26 @@ class PipelineStateStore:
                 (overall_status, step_key, error_summary, now, run_id),
             )
 
-        return self.get_run(run_id)
+        run = self.get_run(run_id)
+        event_name_by_status = {
+            "in_progress": f"{step_key}.started",
+            "success": f"{step_key}.succeeded",
+            "failed": f"{step_key}.failed",
+            "skipped": f"{step_key}.skipped",
+            "waiting": f"{step_key}.waiting",
+            "pending": f"{step_key}.pending",
+        }
+        StructuredPipelineLogger(self.db_path).emit(
+            run_id=run["run_id"],
+            session_id=run["session_id"],
+            step_key=step_key,
+            event_name=event_name_by_status[status],
+            status=status,
+            message=message or error_summary or f"{step_key} is {status}.",
+            details={"error_details": error_details} if error_details else {},
+            level="ERROR" if status == "failed" else "INFO",
+        )
+        return run
 
     def mark_step_success(self, run_id, step_key, message=None, started_at=None, ended_at=None):
         return self.update_step_status(

@@ -75,3 +75,27 @@ skipped
 ```
 
 Future webhook, dashboard, run-history, and structured-log issues should call the service functions in `pipeline_state.py` rather than writing run state directly.
+
+## Structured Events
+
+Pipeline state changes emit structured events through `pipeline_logging.py`.
+
+Event fields:
+
+```text
+timestamp
+level
+run_id
+session_id
+step_key
+event_name
+status
+message
+details
+```
+
+Events are written to normal application logs as JSON and persisted in the same SQLite database in `pipeline_events`.
+
+Future pipeline code should emit events through the structured logging helpers so dashboard cards, run history, and log views can filter by `run_id`, `session_id`, and `step_key`.
+
+Messages and details are sanitized for common secret shapes such as bearer tokens, authorization headers, API keys, passwords, and secrets before they are logged or stored.

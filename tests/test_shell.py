@@ -95,6 +95,12 @@ class PublisherShellTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("run", response.get_json())
 
+    def test_pipeline_events_endpoint_returns_stable_shape(self):
+        response = self.client.get("/api/pipeline-events")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("events", response.get_json())
+
     def test_upload_validation_behavior_is_preserved(self):
         response = self.client.post(
             "/upload",
