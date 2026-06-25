@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import uuid
@@ -8,6 +9,7 @@ from pathlib import Path
 from pipeline_constants import PIPELINE_STATUSES, PIPELINE_STEP_KEYS
 
 TERMINAL_STATUSES = {"success", "failed", "skipped"}
+SYSTEM_RUN_ID = "pipeline-control"
 
 
 def utc_now():
@@ -226,6 +228,67 @@ class PipelineStateStore:
 
         return self.get_run(run["run_id"]) if run else None
 
+    def cancel_current_run(self, message="Open run cancelled by operator."):
+        from pipeline_logging import StructuredPipelineLogger
+
+        run = self.find_active_run()
+        logger = StructuredPipelineLogger(self.db_path)
+        if not run:
+            logger.emit(
+                run_id=SYSTEM_RUN_ID,
+                session_id=None,
+                step_key="stream_end",
+                event_name="run_cancelled",
+                status="skipped",
+                message="No open run to cancel.",
+                details={"skip_reason": "No open run was found."},
+            )
+            return {"cancelled": False, "run": None}
+
+        now = utc_now()
+        current_step = run.get("current_step") or "stream_end"
+        with closing(self.connect()) as connection:
+            connection.execute(
+                """
+                UPDATE pipeline_runs
+                SET ended_at = COALESCE(ended_at, ?),
+                    overall_status = ?,
+                    current_step = ?,
+                    updated_at = ?
+                WHERE run_id = ?
+                """,
+                (now, "skipped", current_step, now, run["run_id"]),
+            )
+            connection.execute(
+                """
+                UPDATE pipeline_steps
+                SET status = ?,
+                    ended_at = COALESCE(ended_at, ?),
+                    message = COALESCE(message, ?),
+                    updated_at = ?
+                WHERE run_id = ?
+                    AND status NOT IN ('success', 'failed', 'skipped')
+                """,
+                ("skipped", now, "Skipped after operator cancelled open run.", now, run["run_id"]),
+            )
+
+        cancelled = self.get_run(run["run_id"])
+        logger.emit(
+            run_id=cancelled["run_id"],
+            session_id=cancelled["session_id"],
+            step_key=current_step,
+            event_name="run_cancelled",
+            status="success",
+            message=message,
+            details={
+                "station": cancelled["station"],
+                "show_name": cancelled["show_name"],
+                "streamer": cancelled["streamer"],
+                "ended_at": cancelled["ended_at"],
+            },
+        )
+        return {"cancelled": True, "run": cancelled}
+
     def mark_stream_start(self, session_id=None, started_at=None, **run_fields):
         existing = self.get_run_by_session_id(session_id) if session_id else None
         run = existing or self.create_run(session_id=session_id, **run_fields)
@@ -307,9 +370,11 @@ class PipelineStateStore:
         duration_ms = self._duration_ms(started_at, ended_at)
         from pipeline_logging import StructuredPipelineLogger, sanitize_log_value
 
-        error_details = sanitize_log_value(error_details)
-        error_summary = sanitize_log_value(message or error_details) if status == "failed" else None
+        event_details = sanitize_log_value(error_details)
+        stored_error_details = self._serialize_error_details(event_details)
+        error_summary = sanitize_log_value(message or stored_error_details) if status == "failed" else None
         overall_status = "failed" if status == "failed" else existing["overall_status"]
+        tracklist_status = status if step_key == "acquire_tracklist" else existing["tracklist_status"]
 
         with closing(self.connect()) as connection:
             current = connection.execute(
@@ -341,7 +406,7 @@ class PipelineStateStore:
                     ended_at,
                     duration_ms,
                     message,
-                    error_details,
+                    stored_error_details,
                     current["retry_count"] if retry_count is None else retry_count,
                     now,
                     run_id,
@@ -353,11 +418,12 @@ class PipelineStateStore:
                 UPDATE pipeline_runs
                 SET overall_status = ?,
                     current_step = ?,
+                    tracklist_status = ?,
                     error_summary = COALESCE(?, error_summary),
                     updated_at = ?
                 WHERE run_id = ?
                 """,
-                (overall_status, step_key, error_summary, now, run_id),
+                (overall_status, step_key, tracklist_status, error_summary, now, run_id),
             )
 
         run = self.get_run(run_id)
@@ -376,7 +442,7 @@ class PipelineStateStore:
             event_name=event_name_by_status[status],
             status=status,
             message=message or error_summary or f"{step_key} is {status}.",
-            details={"error_details": error_details} if error_details else {},
+            details=self._event_details(event_details),
             level="ERROR" if status == "failed" else "INFO",
         )
         return run
@@ -462,6 +528,20 @@ class PipelineStateStore:
         except ValueError:
             return None
         return max(0, int((end - start).total_seconds() * 1000))
+
+    def _serialize_error_details(self, error_details):
+        if error_details in (None, "", {}, []):
+            return None
+        if isinstance(error_details, (dict, list)):
+            return json.dumps(error_details, sort_keys=True)
+        return str(error_details)
+
+    def _event_details(self, error_details):
+        if not error_details:
+            return {}
+        if isinstance(error_details, dict):
+            return error_details
+        return {"error_details": error_details}
 
 
 def get_pipeline_store():

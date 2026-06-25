@@ -98,6 +98,42 @@ class PipelineStateStoreTest(unittest.TestCase):
         self.assertNotIn("abc123", failed["error_summary"])
         self.assertNotIn("super-secret-token", step["error_details"])
 
+    def test_structured_step_details_are_logged_and_compacted_for_step_state(self):
+        run = self.store.create_run()
+        updated = self.store.update_step_status(
+            run["run_id"],
+            "acquire_tracklist",
+            "success",
+            message="Tracklist acquired.",
+            error_details={
+                "history_url_used": "https://azuracast.example/history.json",
+                "track_count_filtered": 4,
+            },
+        )
+
+        step = self._step(updated, "acquire_tracklist")
+        self.assertIn("track_count_filtered", step["error_details"])
+
+    def test_cancel_current_run_closes_open_run_and_skips_remaining_steps(self):
+        started = self.store.mark_stream_start(session_id="cancel-session")
+
+        result = self.store.cancel_current_run()
+        cancelled = result["run"]
+
+        self.assertTrue(result["cancelled"])
+        self.assertEqual(cancelled["run_id"], started["run_id"])
+        self.assertEqual(cancelled["overall_status"], "skipped")
+        self.assertIsNotNone(cancelled["ended_at"])
+        self.assertIsNone(self.store.find_active_run())
+        self.assertEqual(self._step(cancelled, "stream_start")["status"], "success")
+        self.assertEqual(self._step(cancelled, "stream_end")["status"], "skipped")
+
+    def test_cancel_current_run_is_safe_without_open_run(self):
+        result = self.store.cancel_current_run()
+
+        self.assertFalse(result["cancelled"])
+        self.assertIsNone(result["run"])
+
     def test_get_latest_run_returns_most_recently_updated_run(self):
         first = self.store.create_run(session_id="first")
         second = self.store.create_run(session_id="second")

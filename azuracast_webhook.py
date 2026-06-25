@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from pipeline_logging import get_pipeline_logger, sanitize_log_value
 from pipeline_state import get_pipeline_store, utc_now
+from pipeline_tracklist import acquire_tracklist_for_run
 
 
 LOGGER = logging.getLogger(__name__)
@@ -575,6 +576,8 @@ def _handle_streamer_stop(parsed, store, event_store):
             else "Streamer stop recorded."
         )
     _emit_webhook_event(event_store, run, event_name, "success", message, parsed, "stream_end")
+    if not duplicate:
+        run = acquire_tracklist_for_run(run["run_id"], store)
 
     return {
         "ok": True,

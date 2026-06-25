@@ -94,6 +94,10 @@ def build_dashboard_view_model(store=None, event_store=None):
             "overall_status_class": STATUS_CLASSES.get(run["overall_status"], "secondary"),
             "current_step": run["current_step"],
             "error_summary": run["error_summary"],
+            "can_cancel": bool(
+                not run["ended_at"]
+                and run["overall_status"] in {"waiting", "in_progress"}
+            ),
         },
         "cards": cards,
         "draft": {

@@ -173,6 +173,8 @@ class AzuraCastHistoryTest(unittest.TestCase):
             "Tracklist\n\n01. Start - Boundary\n02. Middle - Track\n03. End - Boundary",
         )
         self.assertEqual(len(result["tracks"]), 3)
+        self.assertEqual(result["track_count_total"], 5)
+        self.assertEqual(result["track_count_filtered"], 3)
 
     def test_generate_tracklist_requires_completed_window(self):
         run = self.state_store.mark_stream_start(session_id="open-session")

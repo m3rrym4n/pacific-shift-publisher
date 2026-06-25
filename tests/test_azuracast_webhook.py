@@ -71,8 +71,12 @@ class AzuraCastWebhookTest(unittest.TestCase):
         run = self.store.get_run_by_session_id("storm-surge-20260624")
         self.assertEqual(run["started_at"], "2026-06-24T22:00:00+00:00")
         self.assertEqual(run["ended_at"], "2026-06-24T23:00:00+00:00")
-        self.assertEqual(run["current_step"], "stream_end")
+        self.assertEqual(run["current_step"], "acquire_tracklist")
         self.assertEqual(self._step(run, "stream_end")["status"], "success")
+        self.assertEqual(self._step(run, "acquire_tracklist")["status"], "skipped")
+        tracklist_events = self.events.find_events(run_id=run["run_id"], step_key="acquire_tracklist")
+        self.assertEqual(tracklist_events[-1]["event_name"], "acquire_tracklist.skipped")
+        self.assertIn("skip_reason", tracklist_events[-1]["details"])
 
     def test_start_and_stop_without_session_correlate_by_active_station_streamer(self):
         start = self.client.post(

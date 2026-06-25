@@ -125,8 +125,9 @@ def generate_tracklist_for_run(run_id, store=None, config=None, http_get=None):
             "run": run,
         }
 
+    parsed_tracks = parse_song_history(history.payload)
     tracks = filter_tracks_for_session(
-        parse_song_history(history.payload),
+        parsed_tracks,
         started_at=run["started_at"],
         ended_at=run["ended_at"],
     )
@@ -135,6 +136,8 @@ def generate_tracklist_for_run(run_id, store=None, config=None, http_get=None):
         "endpoint_url": history.endpoint_url,
         "tracklist": format_tracklist(tracks),
         "tracks": [track.as_dict() for track in tracks],
+        "track_count_total": len(parsed_tracks),
+        "track_count_filtered": len(tracks),
         "run": run,
     }
 
