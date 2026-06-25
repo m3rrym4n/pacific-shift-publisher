@@ -28,6 +28,9 @@ EVENT_STEP = {
     "streamer_stop": "stream_end",
 }
 
+NOW_PLAYING_CLASS_KEY = "App\\Entity\\Api\\NowPlaying\\NowPlaying"
+WEBHOOK_EVENT_RUN_ID = "azuracast-webhook"
+
 
 def normalize_event_type(payload):
     value = first_present(
@@ -48,6 +51,10 @@ def normalize_event_type(payload):
 
 def parse_webhook_payload(payload, received_at=None):
     received_at = received_at or utc_now()
+    now_playing = extract_now_playing_payload(payload)
+    if now_playing:
+        return parse_now_playing_payload(payload, now_playing, received_at)
+
     event_type = normalize_event_type(payload)
     timestamp = parse_timestamp(
         first_present(payload, "timestamp", "time", "created_at", "event_time"),
@@ -92,6 +99,62 @@ def parse_webhook_payload(payload, received_at=None):
         "timestamp": timestamp,
         "session_id": clean_text(session_id),
         "raw_event_id": clean_text(raw_event_id),
+        "payload_kind": "lifecycle",
+        "is_live": None,
+        "station_shortcode": None,
+    }
+
+
+def extract_now_playing_payload(payload):
+    if not isinstance(payload, dict):
+        return None
+    wrapper = payload.get("np")
+    if not isinstance(wrapper, dict):
+        return None
+    candidate = wrapper.get(NOW_PLAYING_CLASS_KEY)
+    if isinstance(candidate, dict):
+        return candidate
+    for value in wrapper.values():
+        if isinstance(value, dict) and isinstance(value.get("station"), dict) and isinstance(value.get("live"), dict):
+            return value
+    return None
+
+
+def parse_now_playing_payload(payload, now_playing, received_at):
+    station_data = now_playing.get("station") if isinstance(now_playing.get("station"), dict) else {}
+    live_data = now_playing.get("live") if isinstance(now_playing.get("live"), dict) else {}
+    current_song = now_playing.get("now_playing") if isinstance(now_playing.get("now_playing"), dict) else {}
+
+    is_live = bool(live_data.get("is_live"))
+    event_type = "streamer_start" if is_live else None
+    station_name = clean_text(station_data.get("name"))
+    station_shortcode = clean_text(station_data.get("shortcode"))
+    streamer = clean_text(live_data.get("streamer_name"))
+    broadcast_start = live_data.get("broadcast_start")
+    played_at = current_song.get("played_at")
+    explicit_timestamp = first_present(payload, "timestamp", "time", "created_at", "event_time")
+    timestamp = parse_timestamp(broadcast_start if is_live else explicit_timestamp, fallback=received_at)
+
+    explicit_session_id = first_present(payload, "session_id", "session", "session_key")
+    session_id = explicit_session_id
+    if not session_id and is_live and broadcast_start:
+        session_id = ":".join(
+            part for part in ("azuracast", station_shortcode or station_name, streamer, str(broadcast_start)) if part
+        )
+
+    return {
+        "event_type": event_type,
+        "step_key": EVENT_STEP.get(event_type),
+        "station": station_name or station_shortcode,
+        "show_name": station_name,
+        "streamer": streamer,
+        "timestamp": timestamp,
+        "session_id": clean_text(session_id),
+        "raw_event_id": clean_text(first_present(payload, "event_id", "id", "uuid")),
+        "payload_kind": "now_playing",
+        "is_live": is_live,
+        "station_shortcode": station_shortcode,
+        "now_playing_played_at": parse_timestamp(played_at, fallback=None) if played_at else None,
     }
 
 
@@ -101,10 +164,21 @@ def handle_azuracast_webhook(payload, store=None, event_store=None):
     received_at = utc_now()
     parsed = parse_webhook_payload(payload, received_at=received_at)
 
+    if parsed["payload_kind"] == "now_playing" and parsed["event_type"] is None:
+        return _handle_now_playing_non_live(parsed, store, event_store)
+
     if not parsed["event_type"]:
         LOGGER.warning(
             "Unsupported AzuraCast webhook event: %s",
             sanitize_log_value(first_present(payload, "event", "event_type", "type")),
+        )
+        _emit_system_webhook_event(
+            event_store,
+            "azuracast_webhook_unsupported",
+            "failed",
+            "Unsupported AzuraCast webhook event.",
+            parsed,
+            "stream_start",
         )
         return {
             "ok": False,
@@ -142,18 +216,38 @@ def _handle_streamer_start(parsed, store, event_store):
     _emit_webhook_event(
         event_store,
         run,
-        "azuracast_webhook_received",
+        "azuracast_nowplaying_received" if parsed["payload_kind"] == "now_playing" else "azuracast_webhook_received",
         "success",
-        "AzuraCast streamer start webhook received.",
+        (
+            "AzuraCast Now Playing live webhook received."
+            if parsed["payload_kind"] == "now_playing"
+            else "AzuraCast streamer start webhook received."
+        ),
         parsed,
         "stream_start",
     )
     _emit_webhook_event(
         event_store,
         run,
-        "azuracast_webhook_duplicate" if duplicate else "azuracast_stream_start_recorded",
+        (
+            "azuracast_webhook_duplicate"
+            if duplicate
+            else (
+                "azuracast_nowplaying_live_started"
+                if parsed["payload_kind"] == "now_playing"
+                else "azuracast_stream_start_recorded"
+            )
+        ),
         "success",
-        "Duplicate streamer start ignored." if duplicate else "Streamer start recorded.",
+        (
+            "Duplicate streamer start ignored."
+            if duplicate
+            else (
+                "Now Playing live stream start recorded."
+                if parsed["payload_kind"] == "now_playing"
+                else "Streamer start recorded."
+            )
+        ),
         parsed,
         "stream_start",
     )
@@ -192,9 +286,13 @@ def _handle_streamer_stop(parsed, store, event_store):
     _emit_webhook_event(
         event_store,
         run,
-        "azuracast_webhook_received",
+        "azuracast_nowplaying_received" if parsed["payload_kind"] == "now_playing" else "azuracast_webhook_received",
         "success",
-        "AzuraCast streamer stop webhook received.",
+        (
+            "AzuraCast Now Playing non-live webhook received."
+            if parsed["payload_kind"] == "now_playing"
+            else "AzuraCast streamer stop webhook received."
+        ),
         parsed,
         "stream_end",
     )
@@ -205,8 +303,16 @@ def _handle_streamer_stop(parsed, store, event_store):
         event_name = "azuracast_webhook_duplicate"
         message = "Duplicate streamer stop ignored."
     else:
-        event_name = "azuracast_stream_stop_recorded"
-        message = "Streamer stop recorded."
+        event_name = (
+            "azuracast_nowplaying_live_stopped"
+            if parsed["payload_kind"] == "now_playing"
+            else "azuracast_stream_stop_recorded"
+        )
+        message = (
+            "Now Playing live stream stop recorded."
+            if parsed["payload_kind"] == "now_playing"
+            else "Streamer stop recorded."
+        )
     _emit_webhook_event(event_store, run, event_name, "success", message, parsed, "stream_end")
 
     return {
@@ -217,6 +323,38 @@ def _handle_streamer_stop(parsed, store, event_store):
         "run": run,
         "duplicate": duplicate,
         "out_of_order": out_of_order,
+    }
+
+
+def _handle_now_playing_non_live(parsed, store, event_store):
+    run = _matching_stop_run(parsed, store)
+    if run:
+        parsed["event_type"] = "streamer_stop"
+        parsed["step_key"] = "stream_end"
+        return _handle_streamer_stop(parsed, store, event_store)
+
+    _emit_system_webhook_event(
+        event_store,
+        "azuracast_nowplaying_received",
+        "success",
+        "AzuraCast Now Playing non-live webhook received.",
+        parsed,
+        "stream_start",
+    )
+    _emit_system_webhook_event(
+        event_store,
+        "azuracast_nowplaying_non_live",
+        "skipped",
+        "Now Playing payload is not live; no active run matched.",
+        parsed,
+        "stream_start",
+    )
+    return {
+        "ok": True,
+        "status_code": 200,
+        "message": "Now Playing payload is not live; no active run matched.",
+        "event_type": "now_playing_non_live",
+        "run": None,
     }
 
 
@@ -233,7 +371,12 @@ def _matching_stop_run(parsed, store):
         run = store.get_run_by_session_id(parsed["session_id"])
         if run:
             return run
-    return store.find_active_run(station=parsed["station"], streamer=parsed["streamer"])
+    run = store.find_active_run(station=parsed["station"], streamer=parsed["streamer"])
+    if run:
+        return run
+    if parsed.get("station") and not parsed.get("streamer"):
+        return store.find_active_run(station=parsed["station"])
+    return None
 
 
 def _emit_webhook_event(event_store, run, event_name, status, message, parsed, step_key):
@@ -251,6 +394,32 @@ def _emit_webhook_event(event_store, run, event_name, status, message, parsed, s
             "streamer": parsed["streamer"],
             "event_timestamp": parsed["timestamp"],
             "raw_event_id": parsed["raw_event_id"],
+            "payload_kind": parsed["payload_kind"],
+            "station_shortcode": parsed["station_shortcode"],
+            "now_playing_played_at": parsed.get("now_playing_played_at"),
+        },
+    )
+
+
+def _emit_system_webhook_event(event_store, event_name, status, message, parsed, step_key):
+    event_store.emit(
+        run_id=WEBHOOK_EVENT_RUN_ID,
+        session_id=parsed.get("station_shortcode") or parsed.get("station"),
+        step_key=step_key,
+        event_name=event_name,
+        status=status,
+        message=message,
+        details={
+            "azuracast_event_type": parsed["event_type"],
+            "station": parsed["station"],
+            "show_name": parsed["show_name"],
+            "streamer": parsed["streamer"],
+            "event_timestamp": parsed["timestamp"],
+            "raw_event_id": parsed["raw_event_id"],
+            "payload_kind": parsed["payload_kind"],
+            "station_shortcode": parsed["station_shortcode"],
+            "is_live": parsed["is_live"],
+            "now_playing_played_at": parsed.get("now_playing_played_at"),
         },
     )
 

@@ -148,6 +148,8 @@ POST /api/webhooks/azuracast
 
 Supported normalized events are `streamer_start` and `streamer_stop`. A start event creates or updates the current pipeline run and records `started_at`; a stop event updates the same run when it can be correlated by `session_id` or active station/streamer and records `ended_at`.
 
+Publisher also accepts AzuraCast Now Playing webhook payloads wrapped under `np -> App\Entity\Api\NowPlaying\NowPlaying`. Non-live Now Playing payloads are accepted as a known no-op when no active run exists. Live Now Playing payloads create or update an active run using station, streamer, and `live.broadcast_start` when available; a later non-live Now Playing payload closes the matching active run.
+
 Example start payload:
 
 ```json

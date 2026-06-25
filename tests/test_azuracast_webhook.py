@@ -204,6 +204,110 @@ class AzuraCastWebhookTest(unittest.TestCase):
         self.assertNotIn("super-secret", serialized)
         self.assertNotIn("Bearer hidden", serialized)
 
+    def test_now_playing_non_live_returns_200_without_fake_run(self):
+        response = self.client.post(
+            "/api/webhooks/azuracast",
+            json=self._now_playing_payload(is_live=False),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["event_type"], "now_playing_non_live")
+        self.assertIsNone(response.get_json()["run_id"])
+        self.assertEqual(self.store.get_recent_runs(), [])
+        event_names = [event["event_name"] for event in self.events.find_events()]
+        self.assertIn("azuracast_nowplaying_received", event_names)
+        self.assertIn("azuracast_nowplaying_non_live", event_names)
+
+    def test_now_playing_live_creates_active_run(self):
+        response = self.client.post(
+            "/api/webhooks/azuracast",
+            json=self._now_playing_payload(is_live=True),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        run = self.store.get_run(response.get_json()["run_id"])
+        self.assertEqual(run["station"], "Voyage of Souls")
+        self.assertEqual(run["show_name"], "Voyage of Souls")
+        self.assertEqual(run["streamer"], "SeaCapn")
+        self.assertEqual(run["started_at"], "2026-06-24T22:00:00+00:00")
+        self.assertEqual(run["overall_status"], "in_progress")
+        self.assertEqual(self._step(run, "stream_start")["status"], "success")
+        self.assertIn("voyage_of_souls", run["session_id"])
+        event_names = [event["event_name"] for event in self.events.find_events(run_id=run["run_id"])]
+        self.assertIn("azuracast_nowplaying_received", event_names)
+        self.assertIn("azuracast_nowplaying_live_started", event_names)
+
+    def test_repeated_now_playing_live_update_does_not_create_duplicate_runs(self):
+        first = self.client.post(
+            "/api/webhooks/azuracast",
+            json=self._now_playing_payload(is_live=True),
+        )
+        second = self.client.post(
+            "/api/webhooks/azuracast",
+            json=self._now_playing_payload(is_live=True),
+        )
+
+        runs = self.store.get_recent_runs()
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.get_json()["run_id"], second.get_json()["run_id"])
+        self.assertEqual(len(runs), 1)
+        event_names = [event["event_name"] for event in self.events.find_events(run_id=runs[0]["run_id"])]
+        self.assertIn("azuracast_webhook_duplicate", event_names)
+
+    def test_now_playing_live_to_non_live_closes_matching_run(self):
+        start = self.client.post(
+            "/api/webhooks/azuracast",
+            json=self._now_playing_payload(is_live=True),
+        )
+        stop_payload = self._now_playing_payload(is_live=False)
+        stop_payload["timestamp"] = "2026-06-24T23:00:00Z"
+        stop = self.client.post(
+            "/api/webhooks/azuracast",
+            json=stop_payload,
+        )
+
+        self.assertEqual(start.status_code, 200)
+        self.assertEqual(stop.status_code, 200)
+        self.assertEqual(start.get_json()["run_id"], stop.get_json()["run_id"])
+        run = self.store.get_run(stop.get_json()["run_id"])
+        self.assertEqual(run["ended_at"], "2026-06-24T23:00:00+00:00")
+        self.assertEqual(self._step(run, "stream_end")["status"], "success")
+        event_names = [event["event_name"] for event in self.events.find_events(run_id=run["run_id"])]
+        self.assertIn("azuracast_nowplaying_live_stopped", event_names)
+
+    def test_now_playing_stop_falls_back_to_receipt_time(self):
+        start = self.client.post(
+            "/api/webhooks/azuracast",
+            json=self._now_playing_payload(is_live=True),
+        )
+        stop = self.client.post(
+            "/api/webhooks/azuracast",
+            json=self._now_playing_payload(is_live=False),
+        )
+
+        run = self.store.get_run(stop.get_json()["run_id"])
+
+        self.assertEqual(start.status_code, 200)
+        self.assertEqual(stop.status_code, 200)
+        self.assertIsNotNone(run["ended_at"])
+        self.assertNotEqual(run["ended_at"], "2026-06-24T22:00:00+00:00")
+        self.assertNotEqual(run["ended_at"], "2026-06-24T23:00:00+00:00")
+
+    def test_now_playing_secret_values_are_sanitized(self):
+        payload = self._now_playing_payload(is_live=True)
+        payload["np"]["App\\Entity\\Api\\NowPlaying\\NowPlaying"]["station"]["name"] = "token=super-secret"
+        payload["authorization"] = "Bearer hidden"
+
+        response = self.client.post("/api/webhooks/azuracast", json=payload)
+        events = self.events.find_events(run_id=response.get_json()["run_id"])
+        serialized = str(events)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("super-secret", serialized)
+        self.assertNotIn("Bearer hidden", serialized)
+
     def _post_start(self):
         return self.client.post(
             "/api/webhooks/azuracast",
@@ -215,6 +319,29 @@ class AzuraCastWebhookTest(unittest.TestCase):
                 "session_id": "storm-surge-20260624",
             },
         )
+
+    def _now_playing_payload(self, is_live):
+        return {
+            "np": {
+                "App\\Entity\\Api\\NowPlaying\\NowPlaying": {
+                    "station": {
+                        "id": 1,
+                        "name": "Voyage of Souls",
+                        "shortcode": "voyage_of_souls",
+                        "timezone": "America/Los_Angeles",
+                    },
+                    "live": {
+                        "is_live": is_live,
+                        "streamer_name": "SeaCapn" if is_live else "",
+                        "broadcast_start": "2026-06-24T22:00:00Z" if is_live else None,
+                    },
+                    "now_playing": {
+                        "played_at": 1782354828,
+                    },
+                    "song_history": [],
+                }
+            }
+        }
 
     def _step(self, run, step_key):
         return next(step for step in run["steps"] if step["step_key"] == step_key)
