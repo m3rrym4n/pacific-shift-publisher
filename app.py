@@ -13,7 +13,7 @@ from azuracast_webhook import (
     parse_azuracast_request,
 )
 from dashboard import build_dashboard_view_model
-from logs_view import build_logs_view_model
+from logs_view import build_logs_download, build_logs_view_model, logs_download_filename
 from navigation import get_navigation
 from pipeline_logging import get_pipeline_logger
 from pipeline_state import get_pipeline_store
@@ -171,6 +171,14 @@ def logs():
         page_description="Recent structured Publisher pipeline events.",
         logs=build_logs_view_model(request.args),
     )
+
+
+@app.route("/logs/download")
+def download_logs():
+    body = build_logs_download(request.args)
+    response = app.response_class(body, mimetype="text/plain; charset=utf-8")
+    response.headers["Content-Disposition"] = f'attachment; filename="{logs_download_filename()}"'
+    return response
 
 
 @app.route("/settings")

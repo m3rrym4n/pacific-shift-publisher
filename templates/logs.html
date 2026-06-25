@@ -41,6 +41,9 @@
                 <button class="btn btn-primary" type="submit">Apply filters</button>
                 <button class="btn btn-outline-secondary" type="button" id="manual-refresh-button">Manual refresh</button>
                 <button class="btn btn-outline-secondary" type="button" id="copy-visible-logs-button">Copy visible logs</button>
+                <a class="btn btn-outline-secondary" href="{{ url_for('download_logs', **request.args.to_dict()) }}">
+                    Download Logs
+                </a>
                 <label class="form-check form-switch mb-0">
                     <input class="form-check-input" type="checkbox" id="auto-refresh-toggle">
                     <span class="form-check-label">Auto-refresh</span>

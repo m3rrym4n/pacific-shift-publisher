@@ -35,6 +35,7 @@ class LogsViewTest(unittest.TestCase):
         self.assertIn("Auto-refresh", body)
         self.assertIn("Manual refresh", body)
         self.assertIn("Copy visible logs", body)
+        self.assertIn("Download Logs", body)
         self.assertIn("No pipeline events yet.", body)
         self.assertNotIn("Available Logs", body)
         self.assertNotIn("Pipeline Events source", body)
@@ -285,6 +286,86 @@ class LogsViewTest(unittest.TestCase):
         self.assertIn('id="copy-visible-logs-button"', body)
         self.assertIn("window.setInterval", body)
         self.assertIn("navigator.clipboard.writeText", body)
+
+    def test_logs_download_returns_text_attachment_with_safe_default(self):
+        self.emit_event(
+            step_key="stream_start",
+            event_name="azuracast_webhook_diagnostics",
+            status="success",
+            message="Diagnostics.",
+            details={
+                "station": "Storm Surge",
+                "unlisted_debug_context": "hidden in safe download",
+                "api_key": "super-secret-api-key",
+            },
+        )
+
+        response = self.client.get("/logs/download")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/plain", response.headers["Content-Type"])
+        self.assertIn("attachment;", response.headers["Content-Disposition"])
+        self.assertIn("pacific-shift-publisher-logs-", response.headers["Content-Disposition"])
+        self.assertIn("Pacific Shift Publisher Logs", body)
+        self.assertIn("Detail mode: safe", body)
+        self.assertIn("[stream_start] [azuracast_webhook_diagnostics] [success]", body)
+        self.assertIn("station=Storm Surge", body)
+        self.assertNotIn("hidden in safe download", body)
+        self.assertNotIn("super-secret-api-key", body)
+
+    def test_logs_download_verbose_includes_sanitized_details(self):
+        self.emit_event(
+            step_key="acquire_tracklist",
+            event_name="acquire_tracklist.succeeded",
+            status="success",
+            message="Tracklist acquired.",
+            details={
+                "track_count_filtered": 4,
+                "unlisted_debug_context": "visible in verbose download",
+                "authorization": "Bearer hidden-token",
+            },
+        )
+
+        response = self.client.get("/logs/download?detail_mode=verbose")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Detail mode: verbose", body)
+        self.assertIn("visible in verbose download", body)
+        self.assertIn("\"authorization\": \"[redacted]\"", body)
+        self.assertNotIn("hidden-token", body)
+
+    def test_logs_download_raw_respects_redaction_and_step_filter(self):
+        self.emit_event(
+            step_key="stream_start",
+            event_name="stream_start.succeeded",
+            status="success",
+            message="Stream started.",
+        )
+        self.emit_event(
+            step_key="acquire_tracklist",
+            event_name="acquire_tracklist.failed",
+            status="failed",
+            message="Tracklist failed.",
+            details={
+                "raw_body": "{\"api_key\":\"raw-secret\",\"visible\":\"yes\"}",
+                "token": "secret-token",
+            },
+        )
+
+        response = self.client.get("/logs/download?step_key=acquire_tracklist&detail_mode=raw")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Detail mode: raw", body)
+        self.assertIn("step_key filter: acquire_tracklist", body)
+        self.assertIn("acquire_tracklist.failed", body)
+        self.assertNotIn("stream_start.succeeded", body)
+        self.assertIn("visible", body)
+        self.assertNotIn("raw-secret", body)
+        self.assertNotIn("secret-token", body)
+        self.assertIn("[redacted]", body)
 
     def test_manual_upload_still_renders_required_fields(self):
         response = self.client.get("/manual-upload")

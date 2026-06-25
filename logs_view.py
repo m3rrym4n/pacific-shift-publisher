@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime, timezone
 
 from pipeline_constants import PIPELINE_STEP_KEYS
 from pipeline_logging import get_pipeline_logger, sanitize_log_value
@@ -127,6 +128,32 @@ def build_logs_view_model(args=None, logger=None):
         "empty_message": "No pipeline events yet.",
         "empty_detail": "Publisher will show webhook, stream, and tracklist events here as the pipeline runs.",
     }
+
+
+def build_logs_download(args=None, logger=None, generated_at=None):
+    logs = build_logs_view_model(args=args, logger=logger)
+    generated_at = generated_at or datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    lines = [
+        "Pacific Shift Publisher Logs",
+        f"Generated: {generated_at}",
+        f"Detail mode: {logs['detail_mode']['value']}",
+    ]
+    for key, value in logs["active_filters"].items():
+        lines.append(f"{key} filter: {value}")
+    lines.append("")
+
+    if not logs["rows"]:
+        lines.append(logs["empty_message"])
+    for row in logs["rows"]:
+        lines.append(row["line_text"])
+        if row.get("detail_json"):
+            lines.append(row["detail_json"])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def logs_download_filename(generated_at=None):
+    generated_at = generated_at or datetime.now(timezone.utc)
+    return f"pacific-shift-publisher-logs-{generated_at.strftime('%Y%m%dT%H%M%SZ')}.txt"
 
 
 def resolve_log_detail_mode(requested_mode):
