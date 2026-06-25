@@ -1,0 +1,34 @@
+<aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
+    <div class="container-fluid">
+        <button class="navbar-toggler"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#publisher-sidebar"
+                aria-controls="publisher-sidebar"
+                aria-expanded="false"
+                aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <h1 class="navbar-brand navbar-brand-autodark">
+            <a href="{{ url_for('dashboard') }}">Pacific Shift Publisher</a>
+        </h1>
+        <div class="collapse navbar-collapse show" id="publisher-sidebar">
+            <ul class="navbar-nav pt-lg-3">
+                {% for item in navigation_items %}
+                    {% set active_names = (item.active_endpoints or ()) + (item.endpoint,) %}
+                    <li class="nav-item{% if request.endpoint in active_names %} active{% endif %}">
+                        <a class="nav-link" href="{{ url_for(item.endpoint) }}">
+                            <span class="nav-link-icon d-md-none d-lg-inline-block" aria-hidden="true">
+                                <span class="publisher-nav-dot"></span>
+                            </span>
+                            <span class="nav-link-title">{{ item.label }}</span>
+                            {% if item.badge %}
+                                <span class="badge bg-blue-lt ms-auto">{{ item.badge }}</span>
+                            {% endif %}
+                        </a>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</aside>

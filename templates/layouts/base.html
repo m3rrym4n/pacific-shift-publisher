@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title or "Pacific Shift Publisher" }} · Pacific Shift Publisher</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/tabler/1.4.0/css/tabler.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/publisher-shell.css') }}">
+</head>
+<body>
+<div class="page">
+    {% include "partials/sidebar.html" %}
+    <div class="page-wrapper">
+        {% include "partials/page_header.html" %}
+        <div class="page-body">
+            <div class="container-xl">
+                {% include "partials/flash.html" %}
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='vendor/tabler/1.4.0/js/tabler.min.js') }}" defer></script>
+</body>
+</html>

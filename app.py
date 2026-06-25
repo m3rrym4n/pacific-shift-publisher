@@ -6,6 +6,8 @@ import requests
 from flask import Flask, render_template, request
 from werkzeug.utils import secure_filename
 
+from navigation import get_navigation
+
 app = Flask(__name__)
 
 CASTOPOD_URL = os.getenv("CASTOPOD_URL")
@@ -60,9 +62,59 @@ def check_config():
     return [name for name, value in config.items() if not value]
 
 
+@app.context_processor
+def inject_navigation():
+    return {"navigation_items": get_navigation()}
+
+
+@app.route("/dashboard")
+def dashboard():
+    return render_template(
+        "dashboard.html",
+        page_title="Dashboard",
+        page_description="Pipeline overview foundation for Pacific Shift publishing automation.",
+    )
+
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return manual_upload()
+
+
+@app.route("/manual-upload")
+def manual_upload():
+    return render_template(
+        "index.html",
+        page_title="Manual Upload",
+        page_description="Operational fallback for publishing an episode directly to Castopod.",
+    )
+
+
+@app.route("/runs")
+def runs():
+    return render_template(
+        "placeholder.html",
+        page_title="Runs",
+        page_description="Pipeline run history will appear here in a future milestone.",
+    )
+
+
+@app.route("/logs")
+def logs():
+    return render_template(
+        "placeholder.html",
+        page_title="Logs",
+        page_description="Pipeline logs will appear here in a future milestone.",
+    )
+
+
+@app.route("/settings")
+def settings():
+    return render_template(
+        "placeholder.html",
+        page_title="Settings",
+        page_description="Publisher configuration controls will appear here in a future milestone.",
+    )
 
 
 @app.route("/healthz")
@@ -81,11 +133,19 @@ def upload():
             "index.html",
             error=f"Publisher is missing required configuration: {', '.join(missing_config)}.",
             form=request.form,
+            page_title="Manual Upload",
+            page_description="Operational fallback for publishing an episode directly to Castopod.",
         ), 500
 
     errors, title, description, audio_file = validate_upload(request.form, request.files)
     if errors:
-        return render_template("index.html", errors=errors, form=request.form), 400
+        return render_template(
+            "index.html",
+            errors=errors,
+            form=request.form,
+            page_title="Manual Upload",
+            page_description="Operational fallback for publishing an episode directly to Castopod.",
+        ), 400
 
     filename = secure_filename(audio_file.filename)
     suffix = os.path.splitext(filename)[1] or ".mp3"
@@ -124,6 +184,8 @@ def upload():
                     error="Castopod upload request failed.",
                     detail=str(exc),
                     form=request.form,
+                    page_title="Manual Upload",
+                    page_description="Operational fallback for publishing an episode directly to Castopod.",
                 ), 502
     finally:
         if temp_path and os.path.exists(temp_path):
@@ -135,6 +197,8 @@ def upload():
             error="Castopod rejected the episode upload.",
             detail=response.text,
             form=request.form,
+            page_title="Manual Upload",
+            page_description="Operational fallback for publishing an episode directly to Castopod.",
         ), response.status_code
 
     episode = response.json()
@@ -157,6 +221,8 @@ def upload():
             error="Episode was created, but the publish request failed.",
             detail=str(exc),
             form=request.form,
+            page_title="Manual Upload",
+            page_description="Operational fallback for publishing an episode directly to Castopod.",
         ), 502
 
     if publish_response.status_code not in (200, 201):
@@ -165,12 +231,16 @@ def upload():
             error="Episode was created, but Castopod did not publish it.",
             detail=publish_response.text,
             form=request.form,
+            page_title="Manual Upload",
+            page_description="Operational fallback for publishing an episode directly to Castopod.",
         ), publish_response.status_code
 
     return render_template(
         "index.html",
         success=f"Episode {episode_id} uploaded and published.",
         publish_detail=publish_response.text,
+        page_title="Manual Upload",
+        page_description="Operational fallback for publishing an episode directly to Castopod.",
     )
 
 

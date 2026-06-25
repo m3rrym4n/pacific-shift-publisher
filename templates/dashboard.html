@@ -1,0 +1,19 @@
+{% extends "layouts/base.html" %}
+
+{% block content %}
+<div class="row row-cards">
+    <div class="col-12 col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="card-title">Publishing Pipeline</h2>
+                <p class="text-secondary">
+                    This shell is ready for the v1.4.0 publishing pipeline overview:
+                    Stream Start, Stream End, Acquire MP3, Acquire Tracklist,
+                    Assemble Podcast Episode, and Post Episode to Castopod as Draft.
+                </p>
+                <a class="btn btn-primary" href="{{ url_for('manual_upload') }}">Open Manual Upload</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

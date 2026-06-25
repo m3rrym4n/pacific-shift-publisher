@@ -124,6 +124,16 @@ Template versions of sensitive scripts should be used for documentation and dist
 
 ---
 
+# UI Shell Notes
+
+Publisher uses a server-rendered Tabler shell. Tabler assets are vendored locally under `static/vendor/tabler/1.4.0/`; production templates must load those files through Flask static routes rather than a CDN.
+
+Shared layout files live under `templates/layouts/` and `templates/partials/`. Navigation is centralized in `navigation.py`; add new shell links there instead of duplicating sidebar markup in page templates.
+
+Manual Upload remains the operational fallback workflow. It is reachable at `/manual-upload`, and `/` currently remains compatible with the same upload form.
+
+---
+
 # License
 
 Personal project developed for the Pacific Shift podcast ecosystem.

@@ -1,111 +1,73 @@
-<!doctype html>
-<html>
-<head>
-    <title>Pacific Shift Publisher</title>
-    <style>
-        body {
-            max-width: 720px;
-            margin: 40px auto;
-            font-family: system-ui, sans-serif;
-            line-height: 1.4;
-        }
+{% extends "layouts/base.html" %}
 
-        label {
-            display: block;
-            margin-top: 18px;
-            font-weight: 600;
-        }
+{% block content %}
+<div class="row row-cards">
+    <div class="col-12 col-xl-8">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Publish Episode</h2>
+            </div>
+            <div class="card-body">
+                {% if success %}
+                    <div class="alert alert-success" role="alert">{{ success }}</div>
+                {% endif %}
 
-        input[type="text"],
-        textarea {
-            box-sizing: border-box;
-            width: 100%;
-            margin-top: 6px;
-            padding: 8px;
-        }
+                {% if error %}
+                    <div class="alert alert-danger" role="alert">{{ error }}</div>
+                {% endif %}
 
-        button {
-            margin-top: 18px;
-            padding: 10px 14px;
-        }
+                {% if errors %}
+                    <div class="alert alert-danger" role="alert">
+                        <ul class="mb-0">
+                            {% for item in errors %}
+                                <li>{{ item }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endif %}
 
-        .notice {
-            padding: 12px;
-            border: 1px solid #ccc;
-            margin: 18px 0;
-        }
+                {% if detail %}
+                    <pre class="border rounded p-3 text-secondary">{{ detail }}</pre>
+                {% endif %}
 
-        .error {
-            border-color: #b00020;
-            color: #b00020;
-        }
+                {% if publish_detail %}
+                    <pre class="border rounded p-3 text-secondary">{{ publish_detail }}</pre>
+                {% endif %}
 
-        .success {
-            border-color: #147a35;
-            color: #147a35;
-        }
+                <form action="/upload" method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label class="form-label" for="title">Title</label>
+                        <input class="form-control"
+                               id="title"
+                               type="text"
+                               name="title"
+                               value="{{ form.title if form else '' }}"
+                               required>
+                    </div>
 
-        pre {
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-        }
-    </style>
-</head>
-<body>
+                    <div class="mb-3">
+                        <label class="form-label" for="description">Description</label>
+                        <textarea class="form-control"
+                                  id="description"
+                                  name="description"
+                                  rows="10"
+                                  required>{{ form.description if form else '' }}</textarea>
+                    </div>
 
-<h1>Pacific Shift Publisher</h1>
+                    <div class="mb-3">
+                        <label class="form-label" for="audio_file">MP3 File</label>
+                        <input class="form-control"
+                               id="audio_file"
+                               type="file"
+                               name="audio_file"
+                               accept=".mp3,audio/mpeg"
+                               required>
+                    </div>
 
-{% if success %}
-    <div class="notice success">{{ success }}</div>
-{% endif %}
-
-{% if error %}
-    <div class="notice error">{{ error }}</div>
-{% endif %}
-
-{% if errors %}
-    <div class="notice error">
-        <ul>
-            {% for item in errors %}
-                <li>{{ item }}</li>
-            {% endfor %}
-        </ul>
+                    <button class="btn btn-primary" type="submit">Upload Episode</button>
+                </form>
+            </div>
+        </div>
     </div>
-{% endif %}
-
-{% if detail %}
-    <pre>{{ detail }}</pre>
-{% endif %}
-
-{% if publish_detail %}
-    <pre>{{ publish_detail }}</pre>
-{% endif %}
-
-<form action="/upload" method="post" enctype="multipart/form-data">
-
-    <label for="title">Title</label>
-    <input id="title"
-           type="text"
-           name="title"
-           value="{{ form.title if form else '' }}"
-           required>
-
-    <label for="description">Description</label>
-    <textarea id="description"
-              name="description"
-              rows="10"
-              required>{{ form.description if form else '' }}</textarea>
-
-    <label for="audio_file">MP3 File</label>
-    <input id="audio_file"
-           type="file"
-           name="audio_file"
-           accept=".mp3,audio/mpeg"
-           required>
-
-    <button type="submit">Upload Episode</button>
-
-</form>
-
-</body>
-</html>
+</div>
+{% endblock %}
