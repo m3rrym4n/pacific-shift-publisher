@@ -10,6 +10,7 @@ from dashboard import build_dashboard_view_model
 from navigation import get_navigation
 from pipeline_logging import get_pipeline_logger
 from pipeline_state import get_pipeline_store
+from runs_view import build_recent_runs_view_model
 
 app = Flask(__name__)
 
@@ -123,9 +124,10 @@ def manual_upload():
 @app.route("/runs")
 def runs():
     return render_template(
-        "placeholder.html",
+        "runs.html",
         page_title="Runs",
-        page_description="Pipeline run history will appear here in a future milestone.",
+        page_description="Recent pipeline automation attempts and step outcomes.",
+        runs=build_recent_runs_view_model(),
     )
 
 

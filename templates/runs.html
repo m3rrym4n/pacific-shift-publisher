@@ -1,0 +1,80 @@
+{% extends "layouts/base.html" %}
+
+{% block content %}
+{% if not runs.has_runs %}
+    <div class="alert alert-info" role="status">
+        <strong>{{ runs.empty_message }}</strong>
+        <div>{{ runs.empty_detail }}</div>
+    </div>
+{% else %}
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-vcenter">
+                    <thead>
+                    <tr>
+                        <th>Run ID</th>
+                        <th>Show / Station</th>
+                        <th>Started</th>
+                        <th>Ended</th>
+                        <th>Status</th>
+                        <th>Failed Step</th>
+                        <th>Castopod Draft</th>
+                        <th>Updated</th>
+                        <th>Step State</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in runs.rows %}
+                        <tr>
+                            <td>
+                                <span title="{{ row.run_id }}">{{ row.short_run_id }}</span>
+                            </td>
+                            <td>{{ row.display_name }}</td>
+                            <td>{{ row.started_at or "Not started" }}</td>
+                            <td>{{ row.ended_at or "Not ended" }}</td>
+                            <td>
+                                <span class="badge bg-{{ row.overall_status_class }}-lt">
+                                    {{ row.overall_status_text }}
+                                </span>
+                            </td>
+                            <td>{{ row.failed_step or "None" }}</td>
+                            <td>
+                                {% if row.castopod_episode_url %}
+                                    <a href="{{ row.castopod_episode_url }}" rel="noreferrer">
+                                        {{ row.castopod_episode_id or "Open draft" }}
+                                    </a>
+                                {% elif row.castopod_episode_id %}
+                                    {{ row.castopod_episode_id }}
+                                {% else %}
+                                    Not created
+                                {% endif %}
+                            </td>
+                            <td>{{ row.updated_at or "Not available" }}</td>
+                            <td>
+                                <details>
+                                    <summary>{{ row.step_summary }}</summary>
+                                    <div class="mt-2">
+                                        {% for step in row.steps %}
+                                            <div class="d-flex align-items-center justify-content-between gap-2 border-bottom py-1">
+                                                <span>{{ step.label }}</span>
+                                                <span class="badge bg-{{ step.status_class }}-lt">
+                                                    {{ step.status_text }}
+                                                </span>
+                                            </div>
+                                            {% if step.message %}
+                                                <div class="text-secondary small mb-1">{{ step.message }}</div>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+                                </details>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}

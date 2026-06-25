@@ -11,7 +11,7 @@ TERMINAL_STATUSES = {"success", "failed", "skipped"}
 
 
 def utc_now():
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def default_db_path():
@@ -181,6 +181,26 @@ class PipelineStateStore:
                 """
             ).fetchone()
         return self.get_run(run["run_id"]) if run else None
+
+    def get_recent_runs(self, limit=20):
+        self.initialize()
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 20
+        limit = max(1, min(limit, 100))
+
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT run_id FROM pipeline_runs
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        return [self.get_run(row["run_id"]) for row in rows]
 
     def mark_stream_start(self, session_id=None, **run_fields):
         existing = self.get_run_by_session_id(session_id) if session_id else None
