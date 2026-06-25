@@ -1,5 +1,4 @@
 import json
-import os
 import re
 
 from pipeline_constants import PIPELINE_STEP_KEYS
@@ -76,7 +75,6 @@ DETAIL_MODES = (
     {"value": "raw", "label": "Raw Debug"},
 )
 
-RAW_LOG_VIEW_ENV = "PUBLISHER_ENABLE_RAW_LOG_VIEW"
 SECRET_VALUE_PATTERNS = (
     (
         re.compile(r"(?i)(\"(?:authorization|cookie|api[_-]?key|apikey|token|password|secret|bearer|azuracast_api_key)\"\s*:\s*\")[^\"]+(\")"),
@@ -116,7 +114,7 @@ def build_logs_view_model(args=None, logger=None):
         logger = logger or get_pipeline_logger()
         events = logger.find_events(**active_filters)
 
-    rows = [serialize_log_event(event, detail_mode["value"]) for event in reversed(events)]
+    rows = [serialize_log_event(event, detail_mode["value"]) for event in events]
     return {
         "rows": rows,
         "has_events": bool(rows),
@@ -138,28 +136,19 @@ def resolve_log_detail_mode(requested_mode):
     if requested_mode not in {"safe", "verbose", "raw"}:
         requested_mode = "safe"
     if requested_mode == "raw":
-        if is_raw_log_view_enabled():
-            warning = "Raw Debug mode is enabled. Use only for local troubleshooting. Do not expose this view publicly."
-        else:
-            requested_mode = "verbose"
-            notice = "Raw Debug mode is disabled. Set PUBLISHER_ENABLE_RAW_LOG_VIEW=true to enable it."
+        warning = "Raw Debug mode is enabled. Use only for local troubleshooting. Do not expose this view publicly."
     return {
         "value": requested_mode,
-        "requested": requested_mode if not notice else "raw",
+        "requested": requested_mode,
         "label": next(mode["label"] for mode in DETAIL_MODES if mode["value"] == requested_mode),
         "notice": notice,
         "warning": warning,
-        "raw_enabled": is_raw_log_view_enabled(),
     }
-
-
-def is_raw_log_view_enabled():
-    return os.getenv(RAW_LOG_VIEW_ENV, "").strip().lower() == "true"
 
 
 def serialize_log_event(event, detail_mode="safe"):
     details = event.get("details") or {}
-    return {
+    row = {
         "timestamp": event.get("timestamp"),
         "level": event.get("level") or "INFO",
         "level_class": LEVEL_CLASSES.get(event.get("level") or "INFO", "secondary"),
@@ -175,6 +164,52 @@ def serialize_log_event(event, detail_mode="safe"):
         "details": safe_detail_pairs(details),
         "detail_json": render_event_details(details, detail_mode),
     }
+    row["inline_details"] = inline_detail_pairs(row)
+    row["line_text"] = format_log_line(row)
+    return row
+
+
+def format_log_line(row):
+    tags = [
+        row.get("timestamp") or "-",
+        f"[{row.get('step_key') or '-'}]",
+        f"[{row.get('event_name') or '-'}]",
+        f"[{row.get('status') or '-'}]",
+    ]
+    line = " ".join(tags)
+    if row.get("message"):
+        line = f"{line} {row['message']}"
+    if row["inline_details"]:
+        detail_text = " ".join(f"{item['key']}={item['value']}" for item in row["inline_details"])
+        line = f"{line} {detail_text}"
+    return line
+
+
+def inline_detail_pairs(row):
+    pairs = []
+    if row.get("run_id"):
+        pairs.append({"key": "run", "value": row["short_run_id"]})
+    if row.get("session_id"):
+        pairs.append({"key": "session", "value": row["short_session_id"]})
+    for detail in row.get("details") or []:
+        if detail["key"] in {
+            "station",
+            "station_name",
+            "station_shortcode",
+            "streamer",
+            "started_at",
+            "ended_at",
+            "history_url_used",
+            "endpoint_url",
+            "track_count_total",
+            "track_count_filtered",
+            "song_history_count",
+            "parser_decision",
+            "payload_kind",
+            "error_summary",
+        }:
+            pairs.append({"key": compact_detail_key(detail["key"]), "value": detail["value"]})
+    return pairs[:10]
 
 
 def render_event_details(details, detail_mode):
@@ -251,6 +286,22 @@ def safe_detail_value(key, value):
 
 def labelize(key):
     return str(key).replace("_", " ").title()
+
+
+def compact_detail_key(key):
+    mapping = {
+        "station_name": "station",
+        "station_shortcode": "station_shortcode",
+        "history_url_used": "history_url",
+        "endpoint_url": "history_url",
+        "track_count_total": "tracks_total",
+        "track_count_filtered": "tracks_filtered",
+        "song_history_count": "history_count",
+        "parser_decision": "parser",
+        "payload_kind": "payload",
+        "error_summary": "error",
+    }
+    return mapping.get(key, key)
 
 
 def shorten_identifier(value):

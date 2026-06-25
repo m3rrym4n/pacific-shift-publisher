@@ -261,7 +261,7 @@ This helper prepares description content only. It does not fetch recordings, ass
 
 # Live Pipeline Verification Logs
 
-The `/logs` page renders recent structured pipeline events in the Tabler shell for operator verification. It reads the same event store exposed by `GET /api/pipeline-events` and keeps that JSON API available.
+The `/logs` page renders recent structured pipeline events in a single tail-style viewer for operator verification. It reads the same event store exposed by `GET /api/pipeline-events` and keeps that JSON API available.
 
 Use `/logs` during a live test to confirm:
 
@@ -291,9 +291,11 @@ Detail modes:
 /logs?detail_mode=raw
 ```
 
-Safe mode is the default and shows a compact whitelist of useful detail fields such as station, streamer, parser decision/reason, history URL used, and track counts. Verbose mode shows the stored structured `details` object as formatted JSON with normal redaction. Raw Debug mode is intended only for local troubleshooting, is disabled unless `PUBLISHER_ENABLE_RAW_LOG_VIEW=true`, and still hard-redacts obvious secret fields such as authorization, cookies, API keys, tokens, passwords, bearer values, and secrets.
+Safe mode is the default and shows a compact whitelist of useful detail fields such as station, streamer, parser decision/reason, history URL used, and track counts. Verbose mode shows the stored structured `details` object as formatted JSON with normal redaction. Raw Debug mode is selectable from the UI and query string for local troubleshooting, and still hard-redacts obvious secret fields such as authorization, cookies, API keys, tokens, passwords, bearer values, and secrets.
 
 Raw Debug can only show details that were stored with the event. If an earlier structured event was already sanitized before storage, Raw Debug cannot recover removed values.
+
+Events are shown oldest-to-newest so the newest line appears at the bottom like a live log tail. The page includes a local auto-refresh toggle, a manual refresh button, and a Copy visible logs button for pasting current evidence into an issue or support thread.
 
 ---
 

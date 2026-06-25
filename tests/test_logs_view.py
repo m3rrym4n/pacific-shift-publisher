@@ -2,7 +2,6 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from app import app
 from pipeline_logging import StructuredPipelineLogger
@@ -33,9 +32,14 @@ class LogsViewTest(unittest.TestCase):
         self.assertIn("Logs", body)
         self.assertIn("Recent structured Publisher pipeline events.", body)
         self.assertIn("Detail mode: Safe", body)
+        self.assertIn("Auto-refresh", body)
+        self.assertIn("Manual refresh", body)
+        self.assertIn("Copy visible logs", body)
         self.assertIn("No pipeline events yet.", body)
+        self.assertNotIn("Available Logs", body)
+        self.assertNotIn("Pipeline Events source", body)
 
-    def test_logs_renders_recent_events_newest_first(self):
+    def test_logs_renders_one_tail_viewer_oldest_to_newest(self):
         self.emit_event(
             timestamp="2026-06-24T22:00:00+00:00",
             run_id="run-old",
@@ -59,15 +63,23 @@ class LogsViewTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
-        self.assertLess(body.index("stream_end.succeeded"), body.index("stream_start.succeeded"))
+        self.assertIn("Live Pipeline Log", body)
+        self.assertIn("Oldest events at top; newest events at bottom.", body)
+        self.assertNotIn("<table", body)
+        self.assertLess(body.index("stream_start.succeeded"), body.index("stream_end.succeeded"))
         self.assertIn("2026-06-24T23:00:00+00:00", body)
         self.assertIn("run-new", body)
         self.assertIn("session-new", body)
         self.assertIn("stream_end", body)
         self.assertIn("success", body)
         self.assertIn("Stream ended.", body)
+        self.assertIn("[stream_start]", body)
+        self.assertIn("[stream_start.succeeded]", body)
+        self.assertIn("[success]", body)
+        self.assertIn("run=run-old", body)
+        self.assertIn("session=session-old", body)
 
-    def test_logs_displays_safe_details_for_webhook_and_tracklist_events(self):
+    def test_logs_displays_log_lines_with_inline_safe_details(self):
         self.emit_event(
             step_key="stream_start",
             event_name="azuracast_webhook_diagnostics",
@@ -101,14 +113,16 @@ class LogsViewTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn("azuracast_webhook_diagnostics", body)
-        self.assertIn("Station Name", body)
-        self.assertIn("Storm Surge", body)
-        self.assertIn("Parser Decision", body)
-        self.assertIn("recognized_non_live", body)
+        self.assertIn("[stream_start] [azuracast_webhook_diagnostics] [success]", body)
+        self.assertIn("station=Storm Surge", body)
+        self.assertIn("station_shortcode=storm_surge", body)
+        self.assertIn("streamer=SeaCapn", body)
+        self.assertIn("parser=recognized_non_live", body)
+        self.assertIn("payload=now_playing", body)
+        self.assertIn("history_count=96", body)
         self.assertIn("acquire_tracklist.succeeded", body)
-        self.assertIn("History Url Used", body)
-        self.assertIn("Track Count Filtered", body)
-        self.assertIn("5", body)
+        self.assertIn("history_url=https://azuracast.example/api/nowplaying_static/storm_surge.json", body)
+        self.assertIn("tracks_filtered=5", body)
 
     def test_logs_safe_mode_hides_non_whitelisted_detail_fields(self):
         self.emit_event(
@@ -160,27 +174,7 @@ class LogsViewTest(unittest.TestCase):
         self.assertNotIn("hidden-token", body)
         self.assertNotIn("super-secret-api-key", body)
 
-    def test_logs_raw_mode_disabled_falls_back_to_verbose_with_notice(self):
-        self.emit_event(
-            step_key="stream_start",
-            event_name="azuracast_webhook_diagnostics",
-            status="success",
-            message="Diagnostics.",
-            details={"unlisted_debug_context": "raw requested"},
-        )
-
-        with patch.dict(os.environ, {"PUBLISHER_ENABLE_RAW_LOG_VIEW": "false"}):
-            response = self.client.get("/logs?detail_mode=raw")
-
-        self.assertEqual(response.status_code, 200)
-        body = response.get_data(as_text=True)
-        self.assertIn("Raw Debug mode is disabled. Set PUBLISHER_ENABLE_RAW_LOG_VIEW=true to enable it.", body)
-        self.assertIn("Detail mode: Verbose", body)
-        self.assertIn("Verbose JSON", body)
-        self.assertIn("raw requested", body)
-        self.assertNotIn("Raw Debug mode is enabled", body)
-
-    def test_logs_raw_mode_enabled_shows_warning_and_least_filtered_json(self):
+    def test_logs_raw_mode_is_selectable_without_environment_variable(self):
         self.emit_event(
             step_key="stream_start",
             event_name="azuracast_webhook_diagnostics",
@@ -197,14 +191,14 @@ class LogsViewTest(unittest.TestCase):
             },
         )
 
-        with patch.dict(os.environ, {"PUBLISHER_ENABLE_RAW_LOG_VIEW": "true"}):
-            response = self.client.get("/logs?detail_mode=raw")
+        response = self.client.get("/logs?detail_mode=raw")
 
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn("Raw Debug mode is enabled. Use only for local troubleshooting.", body)
         self.assertIn("Detail mode: Raw Debug", body)
         self.assertIn("Raw Debug JSON", body)
+        self.assertNotIn("Raw Debug mode is disabled", body)
         self.assertIn("raw_body", body)
         self.assertIn("hello", body)
         self.assertIn("world", body)
@@ -280,6 +274,17 @@ class LogsViewTest(unittest.TestCase):
                 body = response.get_data(as_text=True)
                 self.assertIn(included, body)
                 self.assertNotIn(excluded, body)
+
+    def test_logs_copy_and_auto_refresh_controls_are_present(self):
+        response = self.client.get("/logs")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('id="auto-refresh-toggle"', body)
+        self.assertIn('id="manual-refresh-button"', body)
+        self.assertIn('id="copy-visible-logs-button"', body)
+        self.assertIn("window.setInterval", body)
+        self.assertIn("navigator.clipboard.writeText", body)
 
     def test_manual_upload_still_renders_required_fields(self):
         response = self.client.get("/manual-upload")

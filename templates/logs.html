@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card mb-3">
     <div class="card-body">
-        <form method="get" action="{{ url_for('logs') }}" class="row g-3 align-items-end">
+        <form method="get" action="{{ url_for('logs') }}" class="row g-3 align-items-end" id="log-filter-form">
             <div class="col-12 col-lg-3">
                 <label class="form-label" for="run_id">Run ID</label>
                 <input class="form-control" id="run_id" name="run_id" value="{{ logs.filters.run_id }}">
@@ -27,7 +27,7 @@
                 <label class="form-label" for="event_name">Event Name</label>
                 <input class="form-control" id="event_name" name="event_name" value="{{ logs.filters.event_name }}">
             </div>
-            <div class="col-12 col-md-6 col-lg-1">
+            <div class="col-12 col-md-6 col-lg-2">
                 <label class="form-label" for="detail_mode">Detail mode</label>
                 <select class="form-select" id="detail_mode" name="detail_mode">
                     {% for mode in logs.detail_modes %}
@@ -37,31 +37,29 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-12 col-lg-1 d-flex gap-2">
-                <button class="btn btn-primary w-100" type="submit">Filter</button>
+            <div class="col-12 d-flex flex-wrap gap-3 align-items-center">
+                <button class="btn btn-primary" type="submit">Apply filters</button>
+                <button class="btn btn-outline-secondary" type="button" id="manual-refresh-button">Manual refresh</button>
+                <button class="btn btn-outline-secondary" type="button" id="copy-visible-logs-button">Copy visible logs</button>
+                <label class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="auto-refresh-toggle">
+                    <span class="form-check-label">Auto-refresh</span>
+                </label>
+                <span class="badge bg-secondary-lt">Detail mode: {{ logs.detail_mode.label }}</span>
+                {% if logs.active_filters %}
+                    {% for key, value in logs.active_filters.items() %}
+                        <span class="badge bg-primary-lt">{{ key }}={{ value }}</span>
+                    {% endfor %}
+                    <a class="btn btn-link btn-sm p-0" href="{{ url_for('logs') }}">Clear filters</a>
+                {% endif %}
             </div>
         </form>
-        <div class="mt-3">
-            <span class="badge bg-secondary-lt">Detail mode: {{ logs.detail_mode.label }}</span>
-        </div>
-        {% if logs.active_filters %}
-            <div class="mt-3 d-flex flex-wrap gap-2">
-                {% for key, value in logs.active_filters.items() %}
-                    <span class="badge bg-primary-lt">{{ key }}={{ value }}</span>
-                {% endfor %}
-                <a class="btn btn-link btn-sm p-0" href="{{ url_for('logs') }}">Clear filters</a>
-            </div>
-        {% endif %}
     </div>
 </div>
 
 {% for error in logs.errors %}
     <div class="alert alert-danger" role="alert">{{ error }}</div>
 {% endfor %}
-
-{% if logs.detail_mode.notice %}
-    <div class="alert alert-warning" role="alert">{{ logs.detail_mode.notice }}</div>
-{% endif %}
 
 {% if logs.detail_mode.warning %}
     <div class="alert alert-danger" role="alert">{{ logs.detail_mode.warning }}</div>
@@ -74,75 +72,84 @@
     </div>
 {% else %}
     <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Live Pipeline Log</h2>
+            <div class="card-subtitle">Oldest events at top; newest events at bottom.</div>
+        </div>
         <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-vcenter">
-                    <thead>
-                    <tr>
-                        <th>Timestamp</th>
-                        <th>Level</th>
-                        <th>Run</th>
-                        <th>Session</th>
-                        <th>Step</th>
-                        <th>Event</th>
-                        <th>Status</th>
-                        <th>Message</th>
-                        <th>Details</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {% for row in logs.rows %}
-                        <tr>
-                            <td class="text-nowrap">{{ row.timestamp }}</td>
-                            <td>
-                                <span class="badge bg-{{ row.level_class }}-lt">{{ row.level }}</span>
-                            </td>
-                            <td>
-                                {% if row.run_id %}
-                                    <span title="{{ row.run_id }}">{{ row.short_run_id }}</span>
-                                {% else %}
-                                    None
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if row.session_id %}
-                                    <span title="{{ row.session_id }}">{{ row.short_session_id }}</span>
-                                {% else %}
-                                    None
-                                {% endif %}
-                            </td>
-                            <td><code>{{ row.step_key }}</code></td>
-                            <td><code>{{ row.event_name }}</code></td>
-                            <td>
-                                <span class="badge bg-{{ row.status_class }}-lt">{{ row.status }}</span>
-                            </td>
-                            <td>{{ row.message }}</td>
-                            <td>
-                                {% if logs.detail_mode.value == "safe" and row.details %}
-                                    <details>
-                                        <summary>{{ row.details|length }} field{% if row.details|length != 1 %}s{% endif %}</summary>
-                                        <dl class="mt-2 mb-0">
-                                            {% for detail in row.details %}
-                                                <dt class="text-secondary small">{{ detail.label }}</dt>
-                                                <dd class="mb-1"><code>{{ detail.value }}</code></dd>
-                                            {% endfor %}
-                                        </dl>
-                                    </details>
-                                {% elif row.detail_json %}
-                                    <details>
-                                        <summary>{{ logs.detail_mode.label }} JSON</summary>
-                                        <pre class="mt-2 mb-0"><code>{{ row.detail_json }}</code></pre>
-                                    </details>
-                                {% else %}
-                                    None
-                                {% endif %}
-                            </td>
-                        </tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
+            <div id="log-viewer"
+                 class="bg-dark border rounded p-3 overflow-auto"
+                 style="max-height: 70vh; font-family: var(--tblr-font-monospace); font-size: 0.875rem;">
+                {% for row in logs.rows %}
+                    <div class="log-entry mb-2">
+                        <div class="log-line" data-log-line="{{ row.line_text }}">{{ row.line_text }}</div>
+                        {% if logs.detail_mode.value != "safe" and row.detail_json %}
+                            <details class="mt-1 ms-3">
+                                <summary>{{ logs.detail_mode.label }} JSON</summary>
+                                <pre class="mt-2 mb-0"><code>{{ row.detail_json }}</code></pre>
+                            </details>
+                        {% endif %}
+                    </div>
+                {% endfor %}
             </div>
         </div>
     </div>
 {% endif %}
+
+<script>
+(function () {
+    const refreshButton = document.getElementById("manual-refresh-button");
+    const copyButton = document.getElementById("copy-visible-logs-button");
+    const autoRefreshToggle = document.getElementById("auto-refresh-toggle");
+    const logViewer = document.getElementById("log-viewer");
+    const autoRefreshKey = "publisher.logs.autoRefresh";
+    let refreshTimer = null;
+
+    function scrollToBottom() {
+        if (logViewer) {
+            logViewer.scrollTop = logViewer.scrollHeight;
+        }
+    }
+
+    function setAutoRefresh(enabled) {
+        window.localStorage.setItem(autoRefreshKey, enabled ? "true" : "false");
+        if (refreshTimer) {
+            window.clearInterval(refreshTimer);
+            refreshTimer = null;
+        }
+        if (enabled) {
+            scrollToBottom();
+            refreshTimer = window.setInterval(function () {
+                window.location.reload();
+            }, 5000);
+        }
+    }
+
+    if (refreshButton) {
+        refreshButton.addEventListener("click", function () {
+            window.location.reload();
+        });
+    }
+
+    if (copyButton) {
+        copyButton.addEventListener("click", function () {
+            const lines = Array.from(document.querySelectorAll(".log-line"))
+                .map(function (line) { return line.dataset.logLine || line.textContent; })
+                .join("\n");
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(lines);
+            }
+        });
+    }
+
+    if (autoRefreshToggle) {
+        const enabled = window.localStorage.getItem(autoRefreshKey) === "true";
+        autoRefreshToggle.checked = enabled;
+        setAutoRefresh(enabled);
+        autoRefreshToggle.addEventListener("change", function () {
+            setAutoRefresh(autoRefreshToggle.checked);
+        });
+    }
+})();
+</script>
 {% endblock %}
