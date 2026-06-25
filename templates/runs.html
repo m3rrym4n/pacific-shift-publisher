@@ -22,6 +22,7 @@
                         <th>Castopod Draft</th>
                         <th>Updated</th>
                         <th>Step State</th>
+                        <th>Actions</th>
                     </tr>
                     </thead>
                     <tbody>
@@ -68,6 +69,17 @@
                                         {% endfor %}
                                     </div>
                                 </details>
+                            </td>
+                            <td>
+                                {% if row.can_cancel %}
+                                    <form method="post" action="{{ url_for('cancel_run', run_id=row.run_id) }}">
+                                        <button class="btn btn-outline-danger btn-sm" type="submit">
+                                            Cancel Run
+                                        </button>
+                                    </form>
+                                {% else %}
+                                    <span class="text-secondary">None</span>
+                                {% endif %}
                             </td>
                         </tr>
                     {% endfor %}

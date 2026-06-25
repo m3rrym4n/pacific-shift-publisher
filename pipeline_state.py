@@ -12,6 +12,14 @@ TERMINAL_STATUSES = {"success", "failed", "skipped"}
 SYSTEM_RUN_ID = "pipeline-control"
 
 
+def is_terminal_run_status(status):
+    return status in TERMINAL_STATUSES
+
+
+def can_cancel_run(run):
+    return bool(run and not is_terminal_run_status(run.get("overall_status")))
+
+
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -229,9 +237,26 @@ class PipelineStateStore:
         return self.get_run(run["run_id"]) if run else None
 
     def cancel_current_run(self, message="Open run cancelled by operator."):
+        run = self.find_active_run()
+        if not run:
+            from pipeline_logging import StructuredPipelineLogger
+
+            StructuredPipelineLogger(self.db_path).emit(
+                run_id=SYSTEM_RUN_ID,
+                session_id=None,
+                step_key="stream_end",
+                event_name="run_cancelled",
+                status="skipped",
+                message="No open run to cancel.",
+                details={"skip_reason": "No open run was found."},
+            )
+            return {"cancelled": False, "run": None}
+        return self.cancel_run(run["run_id"], message=message)
+
+    def cancel_run(self, run_id, message="Open run cancelled by operator."):
         from pipeline_logging import StructuredPipelineLogger
 
-        run = self.find_active_run()
+        run = self.get_run(run_id)
         logger = StructuredPipelineLogger(self.db_path)
         if not run:
             logger.emit(
@@ -240,8 +265,22 @@ class PipelineStateStore:
                 step_key="stream_end",
                 event_name="run_cancelled",
                 status="skipped",
-                message="No open run to cancel.",
-                details={"skip_reason": "No open run was found."},
+                message="No run found to cancel.",
+                details={"skip_reason": "No run was found.", "run_id": run_id},
+            )
+            return {"cancelled": False, "run": None}
+        if not can_cancel_run(run):
+            logger.emit(
+                run_id=run["run_id"],
+                session_id=run["session_id"],
+                step_key=run.get("current_step") or "stream_end",
+                event_name="run_cancelled",
+                status="skipped",
+                message="Run cancellation skipped because run is already terminal.",
+                details={
+                    "skip_reason": "Run is already terminal.",
+                    "overall_status": run["overall_status"],
+                },
             )
             return {"cancelled": False, "run": None}
 

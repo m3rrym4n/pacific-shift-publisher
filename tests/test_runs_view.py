@@ -71,6 +71,7 @@ class RecentRunsViewModelTest(unittest.TestCase):
         self.assertEqual(row["overall_status_text"], "Waiting")
         self.assertEqual(acquire_mp3["status_text"], "In Progress")
         self.assertEqual(acquire_mp3["status_class"], "warning")
+        self.assertTrue(row["can_cancel"])
 
     def test_castopod_draft_reference_and_step_state_are_exposed(self):
         run = self.store.create_run(run_id="draft-run", show_name="Draft Show")
@@ -97,6 +98,18 @@ class RecentRunsViewModelTest(unittest.TestCase):
         self.assertEqual(row["castopod_episode_url"], "https://castopod.example/episodes/42")
         self.assertTrue(row["steps"])
         self.assertIn("Success", row["step_summary"])
+        self.assertFalse(row["can_cancel"])
+
+    def test_terminal_failed_and_skipped_runs_do_not_allow_cancel(self):
+        failed = self.store.create_run(run_id="failed-terminal")
+        skipped = self.store.create_run(run_id="skipped-terminal")
+        self.store.mark_step_failed(failed["run_id"], "acquire_tracklist", message="Failed terminal.")
+        self.store.cancel_run(skipped["run_id"])
+
+        rows = {row["run_id"]: row for row in build_recent_runs_view_model(self.store)["rows"]}
+
+        self.assertFalse(rows["failed-terminal"]["can_cancel"])
+        self.assertFalse(rows["skipped-terminal"]["can_cancel"])
 
     def _set_updated_at(self, run_id, updated_at):
         with self.store.connect() as connection:
@@ -146,6 +159,7 @@ class RecentRunsRouteTest(unittest.TestCase):
                     "castopod_episode_url": "https://castopod.example/episodes/42",
                     "updated_at": "2026-06-24T11:02:00+00:00",
                     "step_summary": "1 Failed, 5 Pending",
+                    "can_cancel": True,
                     "steps": [
                         {
                             "step_key": "acquire_tracklist",
@@ -168,6 +182,8 @@ class RecentRunsRouteTest(unittest.TestCase):
         self.assertIn("Acquire Tracklist", body)
         self.assertIn("episode-42", body)
         self.assertIn("Tracklist acquisition failed.", body)
+        self.assertIn('action="/runs/run-123456/cancel"', body)
+        self.assertIn("Cancel Run", body)
 
 
 if __name__ == "__main__":

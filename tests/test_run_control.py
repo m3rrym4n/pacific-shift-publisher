@@ -49,6 +49,38 @@ class RunControlRouteTest(unittest.TestCase):
         event_names = [event["event_name"] for event in self.events.find_events(run_id=run["run_id"])]
         self.assertIn("run_cancelled", event_names)
 
+    def test_cancel_specific_run_route_targets_selected_non_terminal_run(self):
+        selected = self.store.create_run(run_id="selected-run", session_id="selected-run")
+        other = self.store.create_run(run_id="other-run", session_id="other-run")
+
+        response = self.client.post("/runs/selected-run/cancel")
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["Location"], "/runs")
+        selected_run = self.store.get_run(selected["run_id"])
+        other_run = self.store.get_run(other["run_id"])
+        self.assertEqual(selected_run["overall_status"], "skipped")
+        self.assertNotEqual(other_run["overall_status"], "skipped")
+        events = self.events.find_events(run_id=selected["run_id"], event_name="run_cancelled")
+        self.assertEqual(len(events), 1)
+
+    def test_cancel_specific_terminal_run_is_safe_noop(self):
+        run = self.store.create_run(run_id="terminal-run", session_id="terminal-run")
+        self.store.mark_step_success(run["run_id"], "post_castopod_draft")
+        with self.store.connect() as connection:
+            connection.execute(
+                "UPDATE pipeline_runs SET overall_status = ? WHERE run_id = ?",
+                ("success", run["run_id"]),
+            )
+
+        response = self.client.post("/runs/terminal-run/cancel")
+
+        self.assertEqual(response.status_code, 303)
+        terminal = self.store.get_run(run["run_id"])
+        self.assertEqual(terminal["overall_status"], "success")
+        events = self.events.find_events(run_id=run["run_id"], event_name="run_cancelled")
+        self.assertEqual(events[-1]["status"], "skipped")
+
     def test_cancel_current_run_route_is_safe_without_open_run(self):
         response = self.client.post("/runs/current/cancel")
 

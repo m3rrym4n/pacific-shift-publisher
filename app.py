@@ -144,6 +144,12 @@ def cancel_current_run():
     return redirect(url_for("dashboard"), code=303)
 
 
+@app.route("/runs/<run_id>/cancel", methods=["POST"])
+def cancel_run(run_id):
+    get_pipeline_store().cancel_run(run_id)
+    return redirect(url_for("runs"), code=303)
+
+
 @app.route("/logs")
 def logs():
     return render_template(

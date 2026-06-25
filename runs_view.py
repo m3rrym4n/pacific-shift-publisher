@@ -1,6 +1,6 @@
 from dashboard import STATUS_CLASSES, STATUS_TEXT, STEP_LABELS
 from pipeline_constants import PIPELINE_STEP_KEYS
-from pipeline_state import get_pipeline_store
+from pipeline_state import can_cancel_run, get_pipeline_store
 
 
 def build_recent_runs_view_model(store=None, limit=20):
@@ -37,6 +37,7 @@ def _build_run_row(run):
         "updated_at": run["updated_at"],
         "step_summary": _step_summary_text(steps),
         "steps": steps,
+        "can_cancel": can_cancel_run(run),
     }
 
 
