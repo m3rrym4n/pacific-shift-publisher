@@ -1,4 +1,6 @@
 import unittest
+from io import BytesIO
+from unittest.mock import Mock, patch
 
 from app import app
 from navigation import get_navigation
@@ -24,15 +26,20 @@ class PublisherShellTest(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("Manual Upload", body)
         self.assertIn('action="/upload"', body)
+        self.assertIn('name="podcast_id"', body)
         self.assertIn('name="title"', body)
         self.assertIn('name="description"', body)
         self.assertIn('name="audio_file"', body)
+        self.assertIn('name="save_as_draft"', body)
 
     def test_root_preserves_existing_manual_upload_form(self):
         response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('action="/upload"', response.get_data(as_text=True))
+        body = response.get_data(as_text=True)
+        self.assertIn('action="/upload"', body)
+        self.assertIn('name="podcast_id"', body)
+        self.assertIn('name="save_as_draft"', body)
 
     def test_dashboard_renders_sidebar_from_navigation(self):
         response = self.client.get("/dashboard")
@@ -83,6 +90,55 @@ class PublisherShellTest(unittest.TestCase):
             "Publisher is missing required configuration",
             response.get_data(as_text=True),
         )
+
+    def test_save_as_draft_skips_publish_call(self):
+        episode_response = Mock(status_code=201)
+        episode_response.json.return_value = {"id": 123}
+
+        with patch("app.CASTOPOD_URL", "http://castopod:8080"), \
+                patch("app.API_USER", "user"), \
+                patch("app.API_PASS", "pass"), \
+                patch("app.requests.post", return_value=episode_response) as post:
+            response = self.client.post(
+                "/upload",
+                data={
+                    "podcast_id": "1",
+                    "title": "Draft Episode",
+                    "description": "Draft description",
+                    "save_as_draft": "1",
+                    "audio_file": (BytesIO(b"mp3"), "episode.mp3"),
+                },
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(post.call_count, 1)
+        self.assertIn("saved as draft", response.get_data(as_text=True))
+
+    def test_publish_path_still_calls_publish_endpoint(self):
+        episode_response = Mock(status_code=201)
+        episode_response.json.return_value = {"id": 123}
+        publish_response = Mock(status_code=200, text="published")
+
+        with patch("app.CASTOPOD_URL", "http://castopod:8080"), \
+                patch("app.API_USER", "user"), \
+                patch("app.API_PASS", "pass"), \
+                patch("app.requests.post", side_effect=[episode_response, publish_response]) as post:
+            response = self.client.post(
+                "/upload",
+                data={
+                    "podcast_id": "1",
+                    "title": "Published Episode",
+                    "description": "Publish description",
+                    "audio_file": (BytesIO(b"mp3"), "episode.mp3"),
+                },
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(post.call_count, 2)
+        self.assertIn("/episodes/123/publish", post.call_args_list[1].args[0])
+        self.assertIn("uploaded and published", response.get_data(as_text=True))
 
 
 if __name__ == "__main__":

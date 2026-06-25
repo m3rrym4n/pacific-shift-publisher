@@ -36,6 +36,19 @@
 
                 <form action="/upload" method="post" enctype="multipart/form-data">
                     <div class="mb-3">
+                        <label class="form-label" for="podcast_id">Podcast</label>
+                        <select class="form-select" id="podcast_id" name="podcast_id" required>
+                            {% for podcast in podcast_options %}
+                                {% set selected_podcast_id = form.podcast_id if form and form.podcast_id else default_podcast_id|string %}
+                                <option value="{{ podcast.id }}"
+                                        {% if selected_podcast_id|string == podcast.id|string %}selected{% endif %}>
+                                    {{ podcast.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
                         <label class="form-label" for="title">Title</label>
                         <input class="form-control"
                                id="title"
@@ -62,6 +75,17 @@
                                name="audio_file"
                                accept=".mp3,audio/mpeg"
                                required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-check">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   name="save_as_draft"
+                                   value="1"
+                                   {% if form and form.save_as_draft %}checked{% endif %}>
+                            <span class="form-check-label">Save as draft</span>
+                        </label>
                     </div>
 
                     <button class="btn btn-primary" type="submit">Upload Episode</button>
