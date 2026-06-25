@@ -3,7 +3,7 @@ import re
 import tempfile
 
 import requests
-from flask import Flask, render_template, request
+from flask import Flask, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
 from navigation import get_navigation
@@ -108,7 +108,7 @@ def dashboard():
 
 @app.route("/")
 def index():
-    return manual_upload()
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/manual-upload")

@@ -130,7 +130,11 @@ Publisher uses a server-rendered Tabler shell. Tabler assets are vendored locall
 
 Shared layout files live under `templates/layouts/` and `templates/partials/`. Navigation is centralized in `navigation.py`; add new shell links there instead of duplicating sidebar markup in page templates.
 
-Manual Upload remains the operational fallback workflow. It is reachable at `/manual-upload`, and `/` currently remains compatible with the same upload form.
+Dashboard is the primary/default operating view and is available at `/dashboard`; `/` redirects there. Runs and Logs are represented as future pipeline operations surfaces, and Settings is represented for future configuration work.
+
+Manual Upload remains the operational fallback workflow. It is reachable at `/manual-upload` and keeps the existing Castopod upload behavior.
+
+Publisher remains a separate bounded application from CrateSpy. The projects may share visual conventions, but Publisher navigation should stay focused on publishing automation.
 
 ---
 

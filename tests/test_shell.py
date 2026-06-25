@@ -32,14 +32,17 @@ class PublisherShellTest(unittest.TestCase):
         self.assertIn('name="audio_file"', body)
         self.assertIn('name="save_as_draft"', body)
 
-    def test_root_preserves_existing_manual_upload_form(self):
+    def test_root_redirects_to_dashboard(self):
         response = self.client.get("/")
 
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/dashboard")
+
+    def test_root_follow_redirect_renders_dashboard(self):
+        response = self.client.get("/", follow_redirects=True)
+
         self.assertEqual(response.status_code, 200)
-        body = response.get_data(as_text=True)
-        self.assertIn('action="/upload"', body)
-        self.assertIn('name="podcast_id"', body)
-        self.assertIn('name="save_as_draft"', body)
+        self.assertIn("Dashboard", response.get_data(as_text=True))
 
     def test_dashboard_renders_sidebar_from_navigation(self):
         response = self.client.get("/dashboard")
@@ -55,6 +58,13 @@ class PublisherShellTest(unittest.TestCase):
 
     def test_active_navigation_marks_manual_upload_alias(self):
         response = self.client.get("/manual-upload")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('<li class="nav-item active">', body)
+
+    def test_active_navigation_marks_dashboard(self):
+        response = self.client.get("/dashboard")
 
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
