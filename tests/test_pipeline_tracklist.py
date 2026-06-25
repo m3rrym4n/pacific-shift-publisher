@@ -47,6 +47,8 @@ class PipelineTracklistTest(unittest.TestCase):
         self.assertEqual(events[-1]["details"]["history_url_used"], "https://azuracast.example/api/nowplaying_static/storm.json")
         self.assertEqual(events[-1]["details"]["track_count_total"], 12)
         self.assertEqual(events[-1]["details"]["track_count_filtered"], 5)
+        self.assertEqual(len(events[-1]["details"]["tracks"]), 5)
+        self.assertEqual(events[-1]["details"]["tracks"][0]["display"], "A - B")
 
     def test_acquire_tracklist_skips_when_no_tracks_match(self):
         def generator(run_id, store=None):

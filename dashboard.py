@@ -71,6 +71,8 @@ def build_dashboard_view_model(store=None, event_store=None):
                 "status_class": STATUS_CLASSES.get(status, "secondary"),
                 "message": _latest_message(step, latest_event),
                 "updated_at": _latest_timestamp(step, latest_event),
+                "tracklist_href": _tracklist_href(run, step_key, latest_event),
+                "tracklist_count": _tracklist_count(latest_event),
             }
         )
 
@@ -139,3 +141,24 @@ def _latest_timestamp(step, latest_event):
     if latest_event and latest_event.get("timestamp"):
         return latest_event["timestamp"]
     return step.get("ended_at") or step.get("started_at")
+
+
+def _tracklist_href(run, step_key, latest_event):
+    if step_key != "acquire_tracklist":
+        return None
+    if not latest_event or latest_event.get("status") != "success":
+        return None
+    count = _tracklist_count(latest_event)
+    if not count:
+        return None
+    return f"/runs/{run['run_id']}/tracklist"
+
+
+def _tracklist_count(latest_event):
+    if not latest_event:
+        return 0
+    details = latest_event.get("details") or {}
+    try:
+        return int(details.get("track_count_filtered") or 0)
+    except (TypeError, ValueError):
+        return 0

@@ -89,6 +89,25 @@ class DashboardViewModelTest(unittest.TestCase):
         self.assertEqual(view_model["draft"]["episode_id"], "42")
         self.assertEqual(view_model["draft"]["episode_url"], "https://castopod.example/episodes/42")
 
+    def test_acquired_tracklist_count_links_to_detail_route(self):
+        run = self.store.create_run(run_id="tracklist-run", session_id="tracklist-run")
+        self.store.update_step_status(
+            run["run_id"],
+            "acquire_tracklist",
+            "success",
+            message="Tracklist acquired with 4 tracks.",
+            error_details={
+                "track_count_filtered": 4,
+                "tracks": [{"played_at": "2026-06-25T14:54:01+00:00", "artist": "A", "title": "B"}],
+            },
+        )
+
+        view_model = build_dashboard_view_model(self.store, self.events)
+        card = self._card(view_model, "acquire_tracklist")
+
+        self.assertEqual(card["tracklist_count"], 4)
+        self.assertEqual(card["tracklist_href"], "/runs/tracklist-run/tracklist")
+
     def _card(self, view_model, step_key):
         return next(card for card in view_model["cards"] if card["step_key"] == step_key)
 

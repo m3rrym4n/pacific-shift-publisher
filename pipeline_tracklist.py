@@ -70,9 +70,23 @@ def _details_from_result(result):
         details["track_count_filtered"] = result["track_count_filtered"]
     elif "tracks" in result:
         details["track_count_filtered"] = len(result.get("tracks") or [])
+    if "tracks" in result:
+        details["tracks"] = [_safe_track(track) for track in result.get("tracks") or []]
+    if "tracklist" in result:
+        details["tracklist"] = result["tracklist"]
     return details
 
 
 def _should_skip_error(error):
     normalized = str(error or "").lower()
     return any(fragment in normalized for fragment in SKIP_ERROR_FRAGMENTS)
+
+
+def _safe_track(track):
+    return {
+        "played_at": track.get("played_at"),
+        "artist": track.get("artist"),
+        "title": track.get("title"),
+        "text": track.get("text"),
+        "display": track.get("display"),
+    }

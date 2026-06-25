@@ -18,6 +18,7 @@ from navigation import get_navigation
 from pipeline_logging import get_pipeline_logger
 from pipeline_state import get_pipeline_store
 from runs_view import build_recent_runs_view_model
+from tracklist_detail import build_tracklist_detail_view_model
 
 app = Flask(__name__)
 
@@ -148,6 +149,18 @@ def cancel_current_run():
 def cancel_run(run_id):
     get_pipeline_store().cancel_run(run_id)
     return redirect(url_for("runs"), code=303)
+
+
+@app.route("/runs/<run_id>/tracklist")
+def run_tracklist(run_id):
+    view_model = build_tracklist_detail_view_model(run_id)
+    status_code = 200 if view_model["found"] else 404
+    return render_template(
+        "tracklist_detail.html",
+        page_title="Tracklist Detail",
+        page_description="Acquired AzuraCast tracklist for a pipeline run.",
+        tracklist_detail=view_model,
+    ), status_code
 
 
 @app.route("/logs")

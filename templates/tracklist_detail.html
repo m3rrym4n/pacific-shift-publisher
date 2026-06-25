@@ -1,0 +1,75 @@
+{% extends "layouts/base.html" %}
+
+{% block content %}
+{% if not tracklist_detail.found %}
+    <div class="alert alert-danger" role="alert">{{ tracklist_detail.message }}</div>
+{% else %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="card-title">Tracklist for run {{ tracklist_detail.run.short_run_id }}</h2>
+            <div class="row g-3 mt-2">
+                <div class="col-12 col-md-6">
+                    <div class="text-secondary">Run ID</div>
+                    <div>{{ tracklist_detail.run.run_id }}</div>
+                </div>
+                <div class="col-12 col-md-6">
+                    <div class="text-secondary">Session ID</div>
+                    <div>{{ tracklist_detail.run.session_id or "Not available" }}</div>
+                </div>
+                <div class="col-12 col-md-6">
+                    <div class="text-secondary">Show / Station</div>
+                    <div>{{ tracklist_detail.run.show_name }} / {{ tracklist_detail.run.station }}</div>
+                </div>
+                <div class="col-12 col-md-3">
+                    <div class="text-secondary">Started</div>
+                    <div>{{ tracklist_detail.run.started_at or "Not available" }}</div>
+                </div>
+                <div class="col-12 col-md-3">
+                    <div class="text-secondary">Ended</div>
+                    <div>{{ tracklist_detail.run.ended_at or "Not available" }}</div>
+                </div>
+                <div class="col-12">
+                    <div class="text-secondary">Tracks</div>
+                    <div>{{ tracklist_detail.track_count }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if tracklist_detail.tracks %}
+        <div class="card mb-3">
+            <div class="table-responsive">
+                <table class="table table-vcenter">
+                    <thead>
+                    <tr>
+                        <th>Played At</th>
+                        <th>Artist</th>
+                        <th>Title</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for track in tracklist_detail.tracks %}
+                        <tr>
+                            <td>{{ track.played_at }}</td>
+                            <td>{{ track.artist }}</td>
+                            <td>{{ track.title }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% else %}
+        <div class="alert alert-info" role="status">No acquired track rows were stored for this run.</div>
+    {% endif %}
+
+    {% if tracklist_detail.formatted_tracklist %}
+        <div class="card">
+            <div class="card-body">
+                <h2 class="card-title">Formatted Tracklist</h2>
+                <pre class="mb-0"><code>{{ tracklist_detail.formatted_tracklist }}</code></pre>
+            </div>
+        </div>
+    {% endif %}
+{% endif %}
+{% endblock %}

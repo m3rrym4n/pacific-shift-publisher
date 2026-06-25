@@ -82,6 +82,13 @@
                         </span>
                     </div>
                     <p class="mt-3 mb-2">{{ card.message }}</p>
+                    {% if card.tracklist_href %}
+                        <p class="mb-2">
+                            <a href="{{ card.tracklist_href }}" target="_blank" rel="noopener noreferrer">
+                                {{ card.tracklist_count }} track{% if card.tracklist_count != 1 %}s{% endif %}
+                            </a>
+                        </p>
+                    {% endif %}
                     <div class="text-secondary small">
                         Last updated:
                         {% if card.updated_at %}
