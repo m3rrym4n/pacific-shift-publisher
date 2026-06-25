@@ -6,6 +6,7 @@ import requests
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
+from azuracast_config import AzuraCastConfigStore
 from azuracast_webhook import (
     emit_webhook_diagnostics,
     handle_azuracast_webhook,
@@ -148,10 +149,36 @@ def logs():
 @app.route("/settings")
 def settings():
     return render_template(
-        "placeholder.html",
+        "settings.html",
         page_title="Settings",
-        page_description="Publisher configuration controls will appear here in a future milestone.",
+        page_description="Publisher configuration for integration endpoints and future automation.",
+        azuracast_config=AzuraCastConfigStore().get_config(),
     )
+
+
+@app.route("/settings/azuracast", methods=["POST"])
+def save_azuracast_settings():
+    config, errors = AzuraCastConfigStore().save_config(
+        {
+            "enabled": request.form.get("enabled") == "1",
+            "base_url": request.form.get("base_url"),
+            "station_shortcode": request.form.get("station_shortcode"),
+            "station_id": request.form.get("station_id"),
+            "station_name": request.form.get("station_name"),
+            "nowplaying_url": request.form.get("nowplaying_url"),
+            "podcast_feed_url": request.form.get("podcast_feed_url"),
+        }
+    )
+    status_code = 400 if errors else 200
+    return render_template(
+        "settings.html",
+        page_title="Settings",
+        page_description="Publisher configuration for integration endpoints and future automation.",
+        azuracast_config=config or AzuraCastConfigStore().get_config(),
+        azuracast_form=request.form,
+        azuracast_errors=errors,
+        azuracast_saved=not errors,
+    ), status_code
 
 
 @app.route("/healthz")

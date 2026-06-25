@@ -138,6 +138,50 @@ Publisher remains a separate bounded application from CrateSpy. The projects may
 
 ---
 
+# AzuraCast Integration Settings
+
+AzuraCast integration settings are available under:
+
+```text
+GET /settings
+POST /settings/azuracast
+```
+
+Publisher stores non-secret AzuraCast settings in the same SQLite state database used for pipeline state. Future automation code should load settings through `get_azuracast_config()` in `azuracast_config.py` instead of hardcoding deployment-specific instance details.
+
+Supported non-secret fields are:
+
+```text
+enabled
+base_url
+station_shortcode
+station_id
+station_name
+nowplaying_url
+podcast_feed_url
+last_successful_check_at
+last_check_message
+```
+
+The AzuraCast API key is read from `AZURACAST_API_KEY`. The Settings UI only shows whether the key is configured; it never displays the full token.
+
+Optional environment defaults:
+
+```text
+AZURACAST_ENABLED
+AZURACAST_BASE_URL
+AZURACAST_STATION_SHORTCODE
+AZURACAST_STATION_ID
+AZURACAST_STATION_NAME
+AZURACAST_NOWPLAYING_URL
+AZURACAST_PODCAST_FEED_URL
+AZURACAST_API_KEY
+```
+
+This settings page does not call AzuraCast, test credentials, fetch track history, read RSS feeds, acquire audio, or create Castopod drafts.
+
+---
+
 # AzuraCast Webhook Session Tracking
 
 Publisher accepts AzuraCast streamer lifecycle webhooks at:

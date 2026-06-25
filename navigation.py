@@ -43,6 +43,7 @@ NAVIGATION_ITEMS = (
         endpoint="settings",
         icon="settings",
         order=50,
+        active_endpoints=("settings", "save_azuracast_settings"),
     ),
 )
 

@@ -1,0 +1,135 @@
+{% extends "layouts/base.html" %}
+
+{% macro field_value(name) -%}
+    {{ (azuracast_form.get(name) if azuracast_form is defined and azuracast_form else azuracast_config.as_dict().get(name)) or "" }}
+{%- endmacro %}
+
+{% block content %}
+<div class="row row-cards">
+    <div class="col-12 col-xl-8">
+        <form class="card" method="post" action="{{ url_for('save_azuracast_settings') }}">
+            <div class="card-header">
+                <div>
+                    <h2 class="card-title mb-1">AzuraCast</h2>
+                    <div class="text-secondary">
+                        Configure the station metadata future Publisher automation will use.
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if azuracast_saved %}
+                    <div class="alert alert-success" role="alert">AzuraCast settings saved.</div>
+                {% endif %}
+                {% if azuracast_errors %}
+                    <div class="alert alert-danger" role="alert">
+                        <div class="fw-bold">AzuraCast settings were not saved.</div>
+                        <ul class="mb-0">
+                            {% for error in azuracast_errors %}
+                                <li>{{ error }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endif %}
+
+                <div class="mb-3">
+                    <label class="form-check form-switch">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               name="enabled"
+                               value="1"
+                               {% if (azuracast_form is defined and azuracast_form and azuracast_form.get("enabled") == "1") or (not azuracast_form is defined and azuracast_config.enabled) %}checked{% endif %}>
+                        <span class="form-check-label">Enable AzuraCast integration</span>
+                    </label>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label" for="base_url">AzuraCast base URL</label>
+                        <input class="form-control"
+                               id="base_url"
+                               name="base_url"
+                               type="url"
+                               placeholder="https://azuracast.example.com"
+                               value="{{ field_value('base_url') }}">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="station_shortcode">Station shortcode</label>
+                        <input class="form-control"
+                               id="station_shortcode"
+                               name="station_shortcode"
+                               placeholder="storm_surge"
+                               value="{{ field_value('station_shortcode') }}">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="station_id">Station ID</label>
+                        <input class="form-control"
+                               id="station_id"
+                               name="station_id"
+                               inputmode="numeric"
+                               placeholder="1"
+                               value="{{ field_value('station_id') }}">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="station_name">Station display name</label>
+                        <input class="form-control"
+                               id="station_name"
+                               name="station_name"
+                               placeholder="Storm Surge"
+                               value="{{ field_value('station_name') }}">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="nowplaying_url">Now Playing/static endpoint override</label>
+                        <input class="form-control"
+                               id="nowplaying_url"
+                               name="nowplaying_url"
+                               type="url"
+                               placeholder="https://azuracast.example.com/api/nowplaying/storm_surge"
+                               value="{{ field_value('nowplaying_url') }}">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="podcast_feed_url">Podcast/feed identifier or RSS feed URL</label>
+                        <input class="form-control"
+                               id="podcast_feed_url"
+                               name="podcast_feed_url"
+                               placeholder="https://azuracast.example.com/public/storm_surge/podcast"
+                               value="{{ field_value('podcast_feed_url') }}">
+                    </div>
+                </div>
+
+                <div class="hr-text">Secret</div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-secondary">API key</span>
+                    {% if azuracast_config.api_key_configured %}
+                        <span class="badge bg-green-lt">Configured</span>
+                    {% else %}
+                        <span class="badge bg-secondary-lt">Not configured</span>
+                    {% endif %}
+                </div>
+                <div class="form-hint mt-2">
+                    The API key is read from <code>AZURACAST_API_KEY</code>. Publisher never displays the full token.
+                </div>
+            </div>
+            <div class="card-footer text-end">
+                <button class="btn btn-primary" type="submit">Save AzuraCast Settings</button>
+            </div>
+        </form>
+    </div>
+    <div class="col-12 col-xl-4">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Current Status</h2>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-6">Enabled</dt>
+                    <dd class="col-6">{{ "Yes" if azuracast_config.enabled else "No" }}</dd>
+                    <dt class="col-6">Last successful check</dt>
+                    <dd class="col-6">{{ azuracast_config.last_successful_check_at or "Not checked" }}</dd>
+                    <dt class="col-6">Last message</dt>
+                    <dd class="col-6">{{ azuracast_config.last_check_message or "Not available" }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
