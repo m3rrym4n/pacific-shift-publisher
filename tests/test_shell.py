@@ -44,7 +44,70 @@ class PublisherShellTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Dashboard", response.get_data(as_text=True))
 
-    def test_dashboard_renders_sidebar_from_navigation(self):
+    @patch("app.build_dashboard_view_model")
+    def test_dashboard_renders_sidebar_from_navigation(self, dashboard_view_model):
+        dashboard_view_model.return_value = {
+            "has_run": False,
+            "empty_message": "No pipeline runs yet.",
+            "empty_detail": "Publisher will show automation progress here after a stream starts.",
+            "cards": [
+                {
+                    "label": "Stream Start",
+                    "step_key": "stream_start",
+                    "status_text": "Pending",
+                    "status_class": "secondary",
+                    "message": "Waiting for pipeline activity.",
+                    "updated_at": None,
+                },
+                {
+                    "label": "Stream End",
+                    "step_key": "stream_end",
+                    "status_text": "Pending",
+                    "status_class": "secondary",
+                    "message": "Waiting for pipeline activity.",
+                    "updated_at": None,
+                },
+                {
+                    "label": "Acquire MP3",
+                    "step_key": "acquire_mp3",
+                    "status_text": "Pending",
+                    "status_class": "secondary",
+                    "message": "Waiting for pipeline activity.",
+                    "updated_at": None,
+                },
+                {
+                    "label": "Acquire Tracklist",
+                    "step_key": "acquire_tracklist",
+                    "status_text": "Pending",
+                    "status_class": "secondary",
+                    "message": "Waiting for pipeline activity.",
+                    "updated_at": None,
+                },
+                {
+                    "label": "Assemble Podcast Episode",
+                    "step_key": "assemble_episode",
+                    "status_text": "Pending",
+                    "status_class": "secondary",
+                    "message": "Waiting for pipeline activity.",
+                    "updated_at": None,
+                },
+                {
+                    "label": "Post Episode to Castopod as Draft",
+                    "step_key": "post_castopod_draft",
+                    "status_text": "Pending",
+                    "status_class": "secondary",
+                    "message": "Waiting for pipeline activity.",
+                    "updated_at": None,
+                },
+            ],
+            "draft": {
+                "available": False,
+                "message": "Castopod draft not created yet.",
+                "episode_id": None,
+                "episode_url": None,
+            },
+        }
+
         response = self.client.get("/dashboard")
 
         self.assertEqual(response.status_code, 200)
@@ -55,6 +118,13 @@ class PublisherShellTest(unittest.TestCase):
         self.assertIn("Logs", body)
         self.assertIn("Manual Upload", body)
         self.assertIn("Settings", body)
+        self.assertIn("Stream Start", body)
+        self.assertIn("Stream End", body)
+        self.assertIn("Acquire MP3", body)
+        self.assertIn("Acquire Tracklist", body)
+        self.assertIn("Assemble Podcast Episode", body)
+        self.assertIn("Post Episode to Castopod as Draft", body)
+        self.assertIn("Pending", body)
 
     def test_active_navigation_marks_manual_upload_alias(self):
         response = self.client.get("/manual-upload")

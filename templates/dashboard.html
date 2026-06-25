@@ -1,19 +1,91 @@
 {% extends "layouts/base.html" %}
 
 {% block content %}
-<div class="row row-cards">
-    <div class="col-12 col-lg-8">
-        <div class="card">
-            <div class="card-body">
-                <h2 class="card-title">Publishing Pipeline</h2>
-                <p class="text-secondary">
-                    This shell is ready for the v1.4.0 publishing pipeline overview:
-                    Stream Start, Stream End, Acquire MP3, Acquire Tracklist,
-                    Assemble Podcast Episode, and Post Episode to Castopod as Draft.
-                </p>
-                <a class="btn btn-primary" href="{{ url_for('manual_upload') }}">Open Manual Upload</a>
+{% if not dashboard.has_run %}
+    <div class="alert alert-info" role="status">
+        <strong>{{ dashboard.empty_message }}</strong>
+        <div>{{ dashboard.empty_detail }}</div>
+    </div>
+{% else %}
+    <div class="row row-cards mb-3">
+        <div class="col-12 col-lg-8">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+                        <div>
+                            <h2 class="card-title mb-1">{{ dashboard.run.show_name }}</h2>
+                            <div class="text-secondary">
+                                {{ dashboard.run.station }}
+                                {% if dashboard.run.streamer %}
+                                    · {{ dashboard.run.streamer }}
+                                {% endif %}
+                            </div>
+                        </div>
+                        <span class="badge bg-{{ dashboard.run.overall_status_class }}-lt">
+                            {{ dashboard.run.overall_status_text }}
+                        </span>
+                    </div>
+                    <div class="row g-3 mt-3">
+                        <div class="col-12 col-md-6">
+                            <div class="text-secondary">Started</div>
+                            <div>{{ dashboard.run.started_at or "Not started" }}</div>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <div class="text-secondary">Ended</div>
+                            <div>{{ dashboard.run.ended_at or "Not ended" }}</div>
+                        </div>
+                    </div>
+                    {% if dashboard.run.error_summary %}
+                        <div class="alert alert-danger mt-3 mb-0" role="alert">
+                            {{ dashboard.run.error_summary }}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-4">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="card-title">Castopod Draft</h2>
+                    <p class="text-secondary">{{ dashboard.draft.message }}</p>
+                    {% if dashboard.draft.episode_id %}
+                        <div><strong>Episode ID:</strong> {{ dashboard.draft.episode_id }}</div>
+                    {% endif %}
+                    {% if dashboard.draft.episode_url %}
+                        <a href="{{ dashboard.draft.episode_url }}" rel="noreferrer">Open draft</a>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>
+{% endif %}
+
+<div class="row row-cards">
+    {% for card in dashboard.cards %}
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card h-100 border-{{ card.status_class }}">
+                <div class="card-body">
+                    <div class="d-flex align-items-start justify-content-between gap-3">
+                        <div>
+                            <h2 class="card-title mb-1">{{ card.label }}</h2>
+                            <div class="text-secondary small">{{ card.step_key }}</div>
+                        </div>
+                        <span class="badge bg-{{ card.status_class }}-lt">
+                            {{ card.status_text }}
+                        </span>
+                    </div>
+                    <p class="mt-3 mb-2">{{ card.message }}</p>
+                    <div class="text-secondary small">
+                        Last updated:
+                        {% if card.updated_at %}
+                            {{ card.updated_at }}
+                        {% else %}
+                            Not available
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
 </div>
 {% endblock %}

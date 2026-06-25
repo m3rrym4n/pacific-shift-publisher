@@ -6,6 +6,7 @@ import requests
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
+from dashboard import build_dashboard_view_model
 from navigation import get_navigation
 from pipeline_logging import get_pipeline_logger
 from pipeline_state import get_pipeline_store
@@ -105,6 +106,7 @@ def dashboard():
         "dashboard.html",
         page_title="Dashboard",
         page_description="Pipeline overview foundation for Pacific Shift publishing automation.",
+        dashboard=build_dashboard_view_model(),
     )
 
 
