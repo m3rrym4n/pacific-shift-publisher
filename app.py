@@ -6,6 +6,7 @@ import requests
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
+from azuracast_webhook import handle_azuracast_webhook
 from dashboard import build_dashboard_view_model
 from navigation import get_navigation
 from pipeline_logging import get_pipeline_logger
@@ -173,6 +174,24 @@ def pipeline_events():
         step_key=request.args.get("step_key"),
     )
     return jsonify({"events": events}), 200
+
+
+@app.route("/api/webhooks/azuracast", methods=["POST"])
+def azuracast_webhook():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "message": "Invalid JSON payload."}), 400
+
+    result = handle_azuracast_webhook(payload)
+    return jsonify(
+        {
+            "ok": result["ok"],
+            "message": result["message"],
+            "event_type": result["event_type"],
+            "run_id": result["run"]["run_id"] if result.get("run") else None,
+            "session_id": result["run"]["session_id"] if result.get("run") else None,
+        }
+    ), result["status_code"]
 
 
 @app.route("/upload", methods=["POST"])

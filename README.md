@@ -138,6 +138,44 @@ Publisher remains a separate bounded application from CrateSpy. The projects may
 
 ---
 
+# AzuraCast Webhook Session Tracking
+
+Publisher accepts AzuraCast streamer lifecycle webhooks at:
+
+```text
+POST /api/webhooks/azuracast
+```
+
+Supported normalized events are `streamer_start` and `streamer_stop`. A start event creates or updates the current pipeline run and records `started_at`; a stop event updates the same run when it can be correlated by `session_id` or active station/streamer and records `ended_at`.
+
+Example start payload:
+
+```json
+{
+  "event": "streamer_start",
+  "station": "Storm Surge",
+  "streamer": "SeaCapn",
+  "timestamp": "2026-06-24T22:00:00Z",
+  "session_id": "storm-surge-20260624"
+}
+```
+
+Example stop payload:
+
+```json
+{
+  "event": "streamer_stop",
+  "station": "Storm Surge",
+  "streamer": "SeaCapn",
+  "timestamp": "2026-06-24T23:00:00Z",
+  "session_id": "storm-surge-20260624"
+}
+```
+
+The completed session window is available through the pipeline run state as `run_id`, `session_id`, `station`, `streamer`, `started_at`, and `ended_at`. This endpoint records state only; it does not call AzuraCast, retrieve recordings or tracklists, or create Castopod episodes.
+
+---
+
 # License
 
 Personal project developed for the Pacific Shift podcast ecosystem.

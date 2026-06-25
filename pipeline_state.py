@@ -202,10 +202,35 @@ class PipelineStateStore:
 
         return [self.get_run(row["run_id"]) for row in rows]
 
-    def mark_stream_start(self, session_id=None, **run_fields):
+    def find_active_run(self, station=None, streamer=None):
+        self.initialize()
+        clauses = ["ended_at IS NULL", "overall_status IN ('waiting', 'in_progress')"]
+        params = []
+        if station:
+            clauses.append("station = ?")
+            params.append(station)
+        if streamer:
+            clauses.append("streamer = ?")
+            params.append(streamer)
+
+        with closing(self.connect()) as connection:
+            run = connection.execute(
+                f"""
+                SELECT run_id FROM pipeline_runs
+                WHERE {' AND '.join(clauses)}
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+
+        return self.get_run(run["run_id"]) if run else None
+
+    def mark_stream_start(self, session_id=None, started_at=None, **run_fields):
         existing = self.get_run_by_session_id(session_id) if session_id else None
         run = existing or self.create_run(session_id=session_id, **run_fields)
         now = utc_now()
+        started_at = started_at or now
 
         with closing(self.connect()) as connection:
             connection.execute(
@@ -217,37 +242,44 @@ class PipelineStateStore:
                     updated_at = ?
                 WHERE run_id = ?
                 """,
-                (now, "in_progress", "stream_start", now, run["run_id"]),
+                (started_at, "in_progress", "stream_start", now, run["run_id"]),
             )
 
         return self.mark_step_success(
             run["run_id"],
             "stream_start",
             message="Stream started.",
-            started_at=now,
-            ended_at=now,
+            started_at=started_at,
+            ended_at=started_at,
         )
 
-    def mark_stream_end(self, run_id=None, session_id=None, message="Stream ended."):
+    def mark_stream_end(self, run_id=None, session_id=None, ended_at=None, message="Stream ended."):
         run = self._resolve_run(run_id=run_id, session_id=session_id)
         now = utc_now()
+        ended_at = ended_at or now
 
         with closing(self.connect()) as connection:
             connection.execute(
                 """
                 UPDATE pipeline_runs
-                SET ended_at = ?, current_step = ?, updated_at = ?
+                SET ended_at = ?,
+                    overall_status = CASE
+                        WHEN overall_status = 'waiting' THEN 'in_progress'
+                        ELSE overall_status
+                    END,
+                    current_step = ?,
+                    updated_at = ?
                 WHERE run_id = ?
                 """,
-                (now, "stream_end", now, run["run_id"]),
+                (ended_at, "stream_end", now, run["run_id"]),
             )
 
         return self.mark_step_success(
             run["run_id"],
             "stream_end",
             message=message,
-            started_at=now,
-            ended_at=now,
+            started_at=ended_at,
+            ended_at=ended_at,
         )
 
     def update_step_status(
