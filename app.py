@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import tempfile
@@ -179,6 +180,13 @@ def pipeline_events():
 @app.route("/api/webhooks/azuracast", methods=["POST"])
 def azuracast_webhook():
     payload = request.get_json(silent=True)
+    if payload is None:
+        raw_body = request.get_data(cache=True, as_text=True).strip()
+        if raw_body:
+            try:
+                payload = json.loads(raw_body)
+            except json.JSONDecodeError:
+                payload = None
     if not isinstance(payload, dict):
         return jsonify({"ok": False, "message": "Invalid JSON payload."}), 400
 

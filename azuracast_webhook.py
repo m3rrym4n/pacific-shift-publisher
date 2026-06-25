@@ -111,6 +111,8 @@ def extract_now_playing_payload(payload):
     wrapper = payload.get("np")
     if not isinstance(wrapper, dict):
         return None
+    if isinstance(wrapper.get("station"), dict) and isinstance(wrapper.get("live"), dict):
+        return wrapper
     candidate = wrapper.get(NOW_PLAYING_CLASS_KEY)
     if isinstance(candidate, dict):
         return candidate
@@ -129,7 +131,7 @@ def parse_now_playing_payload(payload, now_playing, received_at):
     event_type = "streamer_start" if is_live else None
     station_name = clean_text(station_data.get("name"))
     station_shortcode = clean_text(station_data.get("shortcode"))
-    streamer = clean_text(live_data.get("streamer_name"))
+    streamer = clean_text(live_data.get("streamer_name") or current_song.get("streamer"))
     broadcast_start = live_data.get("broadcast_start")
     played_at = current_song.get("played_at")
     explicit_timestamp = first_present(payload, "timestamp", "time", "created_at", "event_time")

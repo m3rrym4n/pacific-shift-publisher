@@ -218,6 +218,29 @@ class AzuraCastWebhookTest(unittest.TestCase):
         self.assertIn("azuracast_nowplaying_received", event_names)
         self.assertIn("azuracast_nowplaying_non_live", event_names)
 
+    def test_now_playing_non_live_without_json_content_type_returns_200(self):
+        response = self.client.post(
+            "/api/webhooks/azuracast",
+            data=self._now_playing_payload_json(is_live=False),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["event_type"], "now_playing_non_live")
+        self.assertIsNone(response.get_json()["run_id"])
+        self.assertEqual(self.store.get_recent_runs(), [])
+
+    def test_now_playing_direct_np_payload_shape_returns_200(self):
+        payload = self._now_playing_payload(is_live=False)
+        direct_payload = {
+            "np": payload["np"]["App\\Entity\\Api\\NowPlaying\\NowPlaying"],
+        }
+
+        response = self.client.post("/api/webhooks/azuracast", json=direct_payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["event_type"], "now_playing_non_live")
+        self.assertEqual(self.store.get_recent_runs(), [])
+
     def test_now_playing_live_creates_active_run(self):
         response = self.client.post(
             "/api/webhooks/azuracast",
@@ -342,6 +365,11 @@ class AzuraCastWebhookTest(unittest.TestCase):
                 }
             }
         }
+
+    def _now_playing_payload_json(self, is_live):
+        import json
+
+        return json.dumps(self._now_playing_payload(is_live=is_live))
 
     def _step(self, run, step_key):
         return next(step for step in run["steps"] if step["step_key"] == step_key)
