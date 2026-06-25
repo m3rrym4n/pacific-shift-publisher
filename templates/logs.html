@@ -1,0 +1,122 @@
+{% extends "layouts/base.html" %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" action="{{ url_for('logs') }}" class="row g-3 align-items-end">
+            <div class="col-12 col-lg-3">
+                <label class="form-label" for="run_id">Run ID</label>
+                <input class="form-control" id="run_id" name="run_id" value="{{ logs.filters.run_id }}">
+            </div>
+            <div class="col-12 col-lg-3">
+                <label class="form-label" for="session_id">Session ID</label>
+                <input class="form-control" id="session_id" name="session_id" value="{{ logs.filters.session_id }}">
+            </div>
+            <div class="col-12 col-md-6 col-lg-2">
+                <label class="form-label" for="step_key">Step</label>
+                <select class="form-select" id="step_key" name="step_key">
+                    <option value="">All steps</option>
+                    {% for step_key in logs.step_options %}
+                        <option value="{{ step_key }}" {% if logs.filters.step_key == step_key %}selected{% endif %}>
+                            {{ step_key }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-6 col-lg-3">
+                <label class="form-label" for="event_name">Event Name</label>
+                <input class="form-control" id="event_name" name="event_name" value="{{ logs.filters.event_name }}">
+            </div>
+            <div class="col-12 col-lg-1 d-flex gap-2">
+                <button class="btn btn-primary w-100" type="submit">Filter</button>
+            </div>
+        </form>
+        {% if logs.active_filters %}
+            <div class="mt-3 d-flex flex-wrap gap-2">
+                {% for key, value in logs.active_filters.items() %}
+                    <span class="badge bg-primary-lt">{{ key }}={{ value }}</span>
+                {% endfor %}
+                <a class="btn btn-link btn-sm p-0" href="{{ url_for('logs') }}">Clear filters</a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+{% for error in logs.errors %}
+    <div class="alert alert-danger" role="alert">{{ error }}</div>
+{% endfor %}
+
+{% if not logs.has_events %}
+    <div class="alert alert-info" role="status">
+        <strong>{{ logs.empty_message }}</strong>
+        <div>{{ logs.empty_detail }}</div>
+    </div>
+{% else %}
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-vcenter">
+                    <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Level</th>
+                        <th>Run</th>
+                        <th>Session</th>
+                        <th>Step</th>
+                        <th>Event</th>
+                        <th>Status</th>
+                        <th>Message</th>
+                        <th>Details</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in logs.rows %}
+                        <tr>
+                            <td class="text-nowrap">{{ row.timestamp }}</td>
+                            <td>
+                                <span class="badge bg-{{ row.level_class }}-lt">{{ row.level }}</span>
+                            </td>
+                            <td>
+                                {% if row.run_id %}
+                                    <span title="{{ row.run_id }}">{{ row.short_run_id }}</span>
+                                {% else %}
+                                    None
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.session_id %}
+                                    <span title="{{ row.session_id }}">{{ row.short_session_id }}</span>
+                                {% else %}
+                                    None
+                                {% endif %}
+                            </td>
+                            <td><code>{{ row.step_key }}</code></td>
+                            <td><code>{{ row.event_name }}</code></td>
+                            <td>
+                                <span class="badge bg-{{ row.status_class }}-lt">{{ row.status }}</span>
+                            </td>
+                            <td>{{ row.message }}</td>
+                            <td>
+                                {% if row.details %}
+                                    <details>
+                                        <summary>{{ row.details|length }} field{% if row.details|length != 1 %}s{% endif %}</summary>
+                                        <dl class="mt-2 mb-0">
+                                            {% for detail in row.details %}
+                                                <dt class="text-secondary small">{{ detail.label }}</dt>
+                                                <dd class="mb-1"><code>{{ detail.value }}</code></dd>
+                                            {% endfor %}
+                                        </dl>
+                                    </details>
+                                {% else %}
+                                    None
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}

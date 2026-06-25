@@ -13,6 +13,7 @@ from azuracast_webhook import (
     parse_azuracast_request,
 )
 from dashboard import build_dashboard_view_model
+from logs_view import build_logs_view_model
 from navigation import get_navigation
 from pipeline_logging import get_pipeline_logger
 from pipeline_state import get_pipeline_store
@@ -140,9 +141,10 @@ def runs():
 @app.route("/logs")
 def logs():
     return render_template(
-        "placeholder.html",
+        "logs.html",
         page_title="Logs",
-        page_description="Pipeline logs will appear here in a future milestone.",
+        page_description="Recent structured Publisher pipeline events.",
+        logs=build_logs_view_model(request.args),
     )
 
 

@@ -259,6 +259,33 @@ This helper prepares description content only. It does not fetch recordings, ass
 
 ---
 
+# Live Pipeline Verification Logs
+
+The `/logs` page renders recent structured pipeline events in the Tabler shell for operator verification. It reads the same event store exposed by `GET /api/pipeline-events` and keeps that JSON API available.
+
+Use `/logs` during a live test to confirm:
+
+```text
+1. AzuraCast webhook diagnostics were received.
+2. Stream start and stream end events were recorded.
+3. Tracklist acquisition events appear when that step is wired.
+4. Events belong to the expected run_id or session_id.
+5. Failure, skipped, or success messages explain the outcome.
+```
+
+Supported query-string filters:
+
+```text
+/logs?run_id=...
+/logs?session_id=...
+/logs?step_key=stream_start
+/logs?event_name=azuracast_webhook_diagnostics
+```
+
+The page shows safe detail fields such as station, streamer, parser decision/reason, history URL used, and track counts. It intentionally does not show authorization headers, cookies, API keys, tokens, raw webhook bodies, full request payloads, or full song history payloads.
+
+---
+
 # License
 
 Personal project developed for the Pacific Shift podcast ecosystem.
