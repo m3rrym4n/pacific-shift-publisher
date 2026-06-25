@@ -3,10 +3,11 @@ import re
 import tempfile
 
 import requests
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, jsonify, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
 from navigation import get_navigation
+from pipeline_state import get_pipeline_store
 
 app = Flask(__name__)
 
@@ -149,6 +150,14 @@ def healthz():
     if missing:
         return {"status": "error", "missing": missing}, 500
     return {"status": "ok"}, 200
+
+
+@app.route("/api/pipeline-runs/latest")
+def latest_pipeline_run():
+    run = get_pipeline_store().get_latest_run()
+    if not run:
+        return jsonify({"run": None}), 200
+    return jsonify({"run": run}), 200
 
 
 @app.route("/upload", methods=["POST"])
