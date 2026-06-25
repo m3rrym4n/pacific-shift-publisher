@@ -282,7 +282,18 @@ Supported query-string filters:
 /logs?event_name=azuracast_webhook_diagnostics
 ```
 
-The page shows safe detail fields such as station, streamer, parser decision/reason, history URL used, and track counts. It intentionally does not show authorization headers, cookies, API keys, tokens, raw webhook bodies, full request payloads, or full song history payloads.
+Detail modes:
+
+```text
+/logs
+/logs?detail_mode=safe
+/logs?detail_mode=verbose
+/logs?detail_mode=raw
+```
+
+Safe mode is the default and shows a compact whitelist of useful detail fields such as station, streamer, parser decision/reason, history URL used, and track counts. Verbose mode shows the stored structured `details` object as formatted JSON with normal redaction. Raw Debug mode is intended only for local troubleshooting, is disabled unless `PUBLISHER_ENABLE_RAW_LOG_VIEW=true`, and still hard-redacts obvious secret fields such as authorization, cookies, API keys, tokens, passwords, bearer values, and secrets.
+
+Raw Debug can only show details that were stored with the event. If an earlier structured event was already sanitized before storage, Raw Debug cannot recover removed values.
 
 ---
 

@@ -8,7 +8,7 @@
                 <label class="form-label" for="run_id">Run ID</label>
                 <input class="form-control" id="run_id" name="run_id" value="{{ logs.filters.run_id }}">
             </div>
-            <div class="col-12 col-lg-3">
+            <div class="col-12 col-lg-2">
                 <label class="form-label" for="session_id">Session ID</label>
                 <input class="form-control" id="session_id" name="session_id" value="{{ logs.filters.session_id }}">
             </div>
@@ -27,10 +27,23 @@
                 <label class="form-label" for="event_name">Event Name</label>
                 <input class="form-control" id="event_name" name="event_name" value="{{ logs.filters.event_name }}">
             </div>
+            <div class="col-12 col-md-6 col-lg-1">
+                <label class="form-label" for="detail_mode">Detail mode</label>
+                <select class="form-select" id="detail_mode" name="detail_mode">
+                    {% for mode in logs.detail_modes %}
+                        <option value="{{ mode.value }}" {% if logs.detail_mode.requested == mode.value %}selected{% endif %}>
+                            {{ mode.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
             <div class="col-12 col-lg-1 d-flex gap-2">
                 <button class="btn btn-primary w-100" type="submit">Filter</button>
             </div>
         </form>
+        <div class="mt-3">
+            <span class="badge bg-secondary-lt">Detail mode: {{ logs.detail_mode.label }}</span>
+        </div>
         {% if logs.active_filters %}
             <div class="mt-3 d-flex flex-wrap gap-2">
                 {% for key, value in logs.active_filters.items() %}
@@ -45,6 +58,14 @@
 {% for error in logs.errors %}
     <div class="alert alert-danger" role="alert">{{ error }}</div>
 {% endfor %}
+
+{% if logs.detail_mode.notice %}
+    <div class="alert alert-warning" role="alert">{{ logs.detail_mode.notice }}</div>
+{% endif %}
+
+{% if logs.detail_mode.warning %}
+    <div class="alert alert-danger" role="alert">{{ logs.detail_mode.warning }}</div>
+{% endif %}
 
 {% if not logs.has_events %}
     <div class="alert alert-info" role="status">
@@ -97,7 +118,7 @@
                             </td>
                             <td>{{ row.message }}</td>
                             <td>
-                                {% if row.details %}
+                                {% if logs.detail_mode.value == "safe" and row.details %}
                                     <details>
                                         <summary>{{ row.details|length }} field{% if row.details|length != 1 %}s{% endif %}</summary>
                                         <dl class="mt-2 mb-0">
@@ -106,6 +127,11 @@
                                                 <dd class="mb-1"><code>{{ detail.value }}</code></dd>
                                             {% endfor %}
                                         </dl>
+                                    </details>
+                                {% elif row.detail_json %}
+                                    <details>
+                                        <summary>{{ logs.detail_mode.label }} JSON</summary>
+                                        <pre class="mt-2 mb-0"><code>{{ row.detail_json }}</code></pre>
                                     </details>
                                 {% else %}
                                     None

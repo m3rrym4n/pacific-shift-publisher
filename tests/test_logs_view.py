@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app import app
 from pipeline_logging import StructuredPipelineLogger
@@ -31,6 +32,7 @@ class LogsViewTest(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("Logs", body)
         self.assertIn("Recent structured Publisher pipeline events.", body)
+        self.assertIn("Detail mode: Safe", body)
         self.assertIn("No pipeline events yet.", body)
 
     def test_logs_renders_recent_events_newest_first(self):
@@ -108,7 +110,117 @@ class LogsViewTest(unittest.TestCase):
         self.assertIn("Track Count Filtered", body)
         self.assertIn("5", body)
 
-    def test_logs_do_not_display_sensitive_or_raw_detail_fields(self):
+    def test_logs_safe_mode_hides_non_whitelisted_detail_fields(self):
+        self.emit_event(
+            step_key="stream_start",
+            event_name="azuracast_webhook_diagnostics",
+            status="success",
+            message="Diagnostics.",
+            details={
+                "station": "Storm Surge",
+                "unlisted_debug_context": "visible outside safe mode",
+            },
+        )
+
+        default_response = self.client.get("/logs")
+        explicit_response = self.client.get("/logs?detail_mode=safe")
+
+        for response in (default_response, explicit_response):
+            with self.subTest(path=response.request.path):
+                body = response.get_data(as_text=True)
+                self.assertIn("Detail mode: Safe", body)
+                self.assertIn("Storm Surge", body)
+                self.assertNotIn("visible outside safe mode", body)
+
+    def test_logs_verbose_mode_shows_full_sanitized_json_details(self):
+        self.emit_event(
+            step_key="stream_start",
+            event_name="azuracast_webhook_diagnostics",
+            status="success",
+            message="Diagnostics.",
+            details={
+                "station": "Storm Surge",
+                "unlisted_debug_context": "visible in verbose mode",
+                "authorization": "Bearer hidden-token",
+                "api_key": "super-secret-api-key",
+            },
+        )
+
+        response = self.client.get("/logs?detail_mode=verbose")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Detail mode: Verbose", body)
+        self.assertIn("Verbose JSON", body)
+        self.assertIn("unlisted_debug_context", body)
+        self.assertIn("visible in verbose mode", body)
+        self.assertIn("authorization", body)
+        self.assertIn("api_key", body)
+        self.assertIn("[redacted]", body)
+        self.assertNotIn("hidden-token", body)
+        self.assertNotIn("super-secret-api-key", body)
+
+    def test_logs_raw_mode_disabled_falls_back_to_verbose_with_notice(self):
+        self.emit_event(
+            step_key="stream_start",
+            event_name="azuracast_webhook_diagnostics",
+            status="success",
+            message="Diagnostics.",
+            details={"unlisted_debug_context": "raw requested"},
+        )
+
+        with patch.dict(os.environ, {"PUBLISHER_ENABLE_RAW_LOG_VIEW": "false"}):
+            response = self.client.get("/logs?detail_mode=raw")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Raw Debug mode is disabled. Set PUBLISHER_ENABLE_RAW_LOG_VIEW=true to enable it.", body)
+        self.assertIn("Detail mode: Verbose", body)
+        self.assertIn("Verbose JSON", body)
+        self.assertIn("raw requested", body)
+        self.assertNotIn("Raw Debug mode is enabled", body)
+
+    def test_logs_raw_mode_enabled_shows_warning_and_least_filtered_json(self):
+        self.emit_event(
+            step_key="stream_start",
+            event_name="azuracast_webhook_diagnostics",
+            status="success",
+            message="Diagnostics.",
+            details={
+                "station": "Storm Surge",
+                "raw_body": "{\"hello\":\"world\",\"api_key\":\"raw-secret\"}",
+                "unlisted_debug_context": "visible in raw mode",
+                "authorization": "Bearer hidden-token",
+                "cookie": "session=hidden",
+                "password": "super-secret-password",
+                "bearer": "hidden-bearer-token",
+            },
+        )
+
+        with patch.dict(os.environ, {"PUBLISHER_ENABLE_RAW_LOG_VIEW": "true"}):
+            response = self.client.get("/logs?detail_mode=raw")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Raw Debug mode is enabled. Use only for local troubleshooting.", body)
+        self.assertIn("Detail mode: Raw Debug", body)
+        self.assertIn("Raw Debug JSON", body)
+        self.assertIn("raw_body", body)
+        self.assertIn("hello", body)
+        self.assertIn("world", body)
+        self.assertIn("visible in raw mode", body)
+        self.assertIn("authorization", body)
+        self.assertIn("cookie", body)
+        self.assertIn("password", body)
+        self.assertIn("bearer", body)
+        self.assertIn("[redacted]", body)
+        self.assertNotIn("hidden-token", body)
+        self.assertNotIn("session=hidden", body)
+        self.assertNotIn("super-secret-password", body)
+        self.assertNotIn("hidden-bearer-token", body)
+        self.assertNotIn("raw-secret", body)
+
+    def test_logs_do_not_display_sensitive_or_raw_detail_fields_in_safe_mode(self):
         self.emit_event(
             step_key="stream_start",
             event_name="azuracast_webhook_diagnostics",

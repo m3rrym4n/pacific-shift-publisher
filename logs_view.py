@@ -1,3 +1,5 @@
+import json
+import os
 import re
 
 from pipeline_constants import PIPELINE_STEP_KEYS
@@ -68,9 +70,36 @@ LEVEL_CLASSES = {
     "CRITICAL": "danger",
 }
 
+DETAIL_MODES = (
+    {"value": "safe", "label": "Safe"},
+    {"value": "verbose", "label": "Verbose"},
+    {"value": "raw", "label": "Raw Debug"},
+)
+
+RAW_LOG_VIEW_ENV = "PUBLISHER_ENABLE_RAW_LOG_VIEW"
+SECRET_VALUE_PATTERNS = (
+    (
+        re.compile(r"(?i)(\"(?:authorization|cookie|api[_-]?key|apikey|token|password|secret|bearer|azuracast_api_key)\"\s*:\s*\")[^\"]+(\")"),
+        r"\1[redacted]\2",
+    ),
+    (
+        re.compile(r"(?i)((?:authorization|cookie|api[_-]?key|apikey|token|password|secret|azuracast_api_key)\s*[:=]\s*)[^\s,;\"']+"),
+        r"\1[redacted]",
+    ),
+    (
+        re.compile(r"(?i)(authorization:\s*bearer)\s+[^\s,;\"']+"),
+        r"\1 [redacted]",
+    ),
+    (
+        re.compile(r"(?i)(bearer)\s+[^\s,;\"']+"),
+        r"\1 [redacted]",
+    ),
+)
+
 
 def build_logs_view_model(args=None, logger=None):
     args = args or {}
+    detail_mode = resolve_log_detail_mode(args.get("detail_mode"))
     filters = {
         "run_id": (args.get("run_id") or "").strip(),
         "session_id": (args.get("session_id") or "").strip(),
@@ -87,12 +116,14 @@ def build_logs_view_model(args=None, logger=None):
         logger = logger or get_pipeline_logger()
         events = logger.find_events(**active_filters)
 
-    rows = [serialize_log_event(event) for event in reversed(events)]
+    rows = [serialize_log_event(event, detail_mode["value"]) for event in reversed(events)]
     return {
         "rows": rows,
         "has_events": bool(rows),
         "filters": filters,
         "active_filters": active_filters,
+        "detail_mode": detail_mode,
+        "detail_modes": DETAIL_MODES,
         "errors": errors,
         "step_options": PIPELINE_STEP_KEYS,
         "empty_message": "No pipeline events yet.",
@@ -100,7 +131,34 @@ def build_logs_view_model(args=None, logger=None):
     }
 
 
-def serialize_log_event(event):
+def resolve_log_detail_mode(requested_mode):
+    requested_mode = (requested_mode or "safe").strip().lower()
+    notice = None
+    warning = None
+    if requested_mode not in {"safe", "verbose", "raw"}:
+        requested_mode = "safe"
+    if requested_mode == "raw":
+        if is_raw_log_view_enabled():
+            warning = "Raw Debug mode is enabled. Use only for local troubleshooting. Do not expose this view publicly."
+        else:
+            requested_mode = "verbose"
+            notice = "Raw Debug mode is disabled. Set PUBLISHER_ENABLE_RAW_LOG_VIEW=true to enable it."
+    return {
+        "value": requested_mode,
+        "requested": requested_mode if not notice else "raw",
+        "label": next(mode["label"] for mode in DETAIL_MODES if mode["value"] == requested_mode),
+        "notice": notice,
+        "warning": warning,
+        "raw_enabled": is_raw_log_view_enabled(),
+    }
+
+
+def is_raw_log_view_enabled():
+    return os.getenv(RAW_LOG_VIEW_ENV, "").strip().lower() == "true"
+
+
+def serialize_log_event(event, detail_mode="safe"):
+    details = event.get("details") or {}
     return {
         "timestamp": event.get("timestamp"),
         "level": event.get("level") or "INFO",
@@ -114,8 +172,39 @@ def serialize_log_event(event):
         "status": event.get("status"),
         "status_class": STATUS_CLASSES.get(event.get("status"), "secondary"),
         "message": event.get("message"),
-        "details": safe_detail_pairs(event.get("details") or {}),
+        "details": safe_detail_pairs(details),
+        "detail_json": render_event_details(details, detail_mode),
     }
+
+
+def render_event_details(details, detail_mode):
+    if detail_mode == "safe":
+        return None
+    if detail_mode == "raw":
+        rendered = redact_hard_secrets(details or {})
+    else:
+        rendered = redact_hard_secrets(sanitize_log_value(details or {}))
+    return json.dumps(rendered, indent=2, sort_keys=True)
+
+
+def redact_hard_secrets(value, key=None):
+    if key and is_secret_key(key):
+        return "[redacted]"
+    if isinstance(value, dict):
+        return {item_key: redact_hard_secrets(item_value, item_key) for item_key, item_value in value.items()}
+    if isinstance(value, list):
+        return [redact_hard_secrets(item) for item in value]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+
+    text = str(value)
+    for pattern, replacement in SECRET_VALUE_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def is_secret_key(key):
+    return re.search(r"(?i)(authorization|cookie|api[_-]?key|apikey|password|secret|token|bearer|azuracast_api_key)", str(key)) is not None
 
 
 def safe_detail_pairs(details):
