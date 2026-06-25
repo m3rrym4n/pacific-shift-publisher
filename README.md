@@ -230,6 +230,35 @@ The completed session window is available through the pipeline run state as `run
 
 ---
 
+# AzuraCast Session Tracklists
+
+Publisher can prepare a simple Castopod description tracklist from AzuraCast Now Playing/static history for a completed pipeline run.
+
+Tracklist generation is config-driven. Code should call `generate_tracklist_for_run()` in `azuracast_history.py`; it loads AzuraCast settings through `get_azuracast_config()` and never hardcodes local station URLs, station IDs, or LAN addresses.
+
+Endpoint resolution uses:
+
+```text
+1. configured nowplaying_url override, when present
+2. base_url + /api/nowplaying_static/{station_shortcode}.json
+3. base_url + /api/nowplaying/{station_id}
+```
+
+The generated tracklist reads `song_history`, filters tracks inclusively between the run `started_at` and `ended_at` timestamps, sorts tracks by `played_at` ascending, and formats:
+
+```text
+Tracklist
+
+01. Artist - Title
+02. Artist - Title
+```
+
+Use `prepare_description_with_tracklist()` to append the generated tracklist to an existing description. If a description already contains a `Tracklist` section, the helper replaces that section instead of appending a duplicate.
+
+This helper prepares description content only. It does not fetch recordings, assemble podcast episodes, create Castopod drafts, publish episodes, use WNP, or read the AzuraCast database directly.
+
+---
+
 # License
 
 Personal project developed for the Pacific Shift podcast ecosystem.
