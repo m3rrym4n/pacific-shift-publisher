@@ -134,7 +134,7 @@ def generate_tracklist_for_run(run_id, store=None, config=None, http_get=None):
     return {
         "ok": True,
         "endpoint_url": history.endpoint_url,
-        "tracklist": format_tracklist(tracks),
+        "tracklist": format_tracklist(tracks, started_at=run["started_at"]),
         "tracks": [track.as_dict() for track in tracks],
         "track_count_total": len(parsed_tracks),
         "track_count_filtered": len(tracks),

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 
 EMPTY_TRACKLIST_MESSAGE = "No AzuraCast track history was found for this session window."
+UNAVAILABLE_OFFSET = "--:--:--"
 
 
 @dataclass(frozen=True)
@@ -104,14 +105,58 @@ def filter_tracks_for_session(entries, started_at, ended_at):
     return sorted(selected, key=lambda entry: entry.played_at_epoch)
 
 
-def format_tracklist(entries):
+def format_tracklist(entries, started_at=None):
     lines = ["Tracklist", ""]
     if not entries:
         lines.append(EMPTY_TRACKLIST_MESSAGE)
         return "\n".join(lines)
     for index, entry in enumerate(entries, start=1):
-        lines.append(f"{index:02d}. {entry.display}")
+        if started_at is not None:
+            lines.append(f"{episode_relative_timestamp(entry, started_at)} {track_display(entry)}")
+        else:
+            lines.append(f"{index:02d}. {track_display(entry)}")
     return "\n".join(lines)
+
+
+def episode_relative_timestamp(track, started_at):
+    start_epoch = to_epoch_seconds(started_at)
+    played_epoch = to_epoch_seconds(track_value(track, "played_at_epoch"))
+    if played_epoch is None:
+        played_epoch = to_epoch_seconds(track_value(track, "played_at"))
+    if start_epoch is None or played_epoch is None:
+        return UNAVAILABLE_OFFSET
+    offset_seconds = max(0, played_epoch - start_epoch)
+    return format_offset_seconds(offset_seconds)
+
+
+def format_offset_seconds(offset_seconds):
+    offset_seconds = max(0, int(offset_seconds))
+    hours = offset_seconds // 3600
+    minutes = (offset_seconds % 3600) // 60
+    seconds = offset_seconds % 60
+    return f"{hours}:{minutes:02d}:{seconds:02d}"
+
+
+def track_display(track):
+    display = getattr(track, "display", None)
+    if display:
+        return display
+    artist = track_value(track, "artist")
+    title = track_value(track, "title")
+    text = track_value(track, "text")
+    if artist and title:
+        return f"{artist} - {title}"
+    if title:
+        return title
+    if artist:
+        return artist
+    return text or track_value(track, "display") or "Unknown track"
+
+
+def track_value(track, key):
+    if isinstance(track, dict):
+        return track.get(key)
+    return getattr(track, key, None)
 
 
 def append_tracklist_to_description(description, tracklist_text):

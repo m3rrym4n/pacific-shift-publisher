@@ -170,7 +170,7 @@ class AzuraCastHistoryTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(
             result["tracklist"],
-            "Tracklist\n\n01. Start - Boundary\n02. Middle - Track\n03. End - Boundary",
+            "Tracklist\n\n0:00:00 Start - Boundary\n0:03:00 Middle - Track\n0:05:00 End - Boundary",
         )
         self.assertEqual(len(result["tracks"]), 3)
         self.assertEqual(result["track_count_total"], 5)

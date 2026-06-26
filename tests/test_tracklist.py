@@ -3,6 +3,7 @@ import unittest
 from tracklist import (
     EMPTY_TRACKLIST_MESSAGE,
     append_tracklist_to_description,
+    episode_relative_timestamp,
     filter_tracks_for_session,
     format_tracklist,
     parse_song_history,
@@ -109,6 +110,54 @@ class TracklistTest(unittest.TestCase):
             "Tracklist\n\n01. Artist A - Title A\n02. Title Only",
         )
         self.assertEqual(format_tracklist([]), f"Tracklist\n\n{EMPTY_TRACKLIST_MESSAGE}")
+
+    def test_episode_relative_timestamp_offsets(self):
+        started_at = "2026-06-25T14:53:20+00:00"
+
+        self.assertEqual(
+            episode_relative_timestamp({"played_at": "2026-06-25T14:53:20+00:00"}, started_at),
+            "0:00:00",
+        )
+        self.assertEqual(
+            episode_relative_timestamp({"played_at": "2026-06-25T14:56:44+00:00"}, started_at),
+            "0:03:24",
+        )
+        self.assertEqual(
+            episode_relative_timestamp({"played_at": "2026-06-25T15:55:29+00:00"}, started_at),
+            "1:02:09",
+        )
+
+    def test_episode_relative_timestamp_edge_cases(self):
+        started_at = "2026-06-25T14:53:20+00:00"
+
+        self.assertEqual(
+            episode_relative_timestamp({"played_at": "2026-06-25T14:50:00+00:00"}, started_at),
+            "0:00:00",
+        )
+        self.assertEqual(episode_relative_timestamp({"played_at": None}, started_at), "--:--:--")
+        self.assertEqual(
+            episode_relative_timestamp({"played_at": "2026-06-25T14:56:44+00:00"}, None),
+            "--:--:--",
+        )
+        self.assertEqual(episode_relative_timestamp({"played_at": "bad"}, started_at), "--:--:--")
+
+    def test_format_tracklist_with_started_at_uses_podcast_offsets(self):
+        tracks = parse_song_history(
+            {
+                "song_history": [
+                    {"played_at": 1782399200, "song": {"artist": "DJ Magic Touch", "title": "Just Relax"}},
+                    {
+                        "played_at": 1782399404,
+                        "song": {"artist": "EncryptionUK, Jungle George", "title": "Ruckus Rideout"},
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(
+            format_tracklist(tracks, started_at=1782399200),
+            "Tracklist\n\n0:00:00 DJ Magic Touch - Just Relax\n0:03:24 EncryptionUK, Jungle George - Ruckus Rideout",
+        )
 
     def test_description_append_and_update_without_duplicate(self):
         tracklist = "Tracklist\n\n01. Artist - Title"
