@@ -76,6 +76,36 @@ class TracklistTest(unittest.TestCase):
 
         self.assertEqual([track.title for track in filtered], ["Window Early", "Window Late"])
 
+    def test_filter_includes_track_that_overlaps_session_start(self):
+        tracks = parse_song_history(
+            {
+                "song_history": [
+                    {"played_at": 1781935170, "duration": 90, "song": {"artist": "Opener", "title": "Overlap"}},
+                    {"played_at": 1781935260, "song": {"artist": "In", "title": "Window"}},
+                    {"played_at": 1781935100, "duration": 30, "song": {"artist": "Too Old", "title": "Outside"}},
+                ]
+            }
+        )
+
+        filtered = filter_tracks_for_session(tracks, started_at=1781935200, ended_at=1781935500)
+
+        self.assertEqual([track.display for track in filtered], ["Opener - Overlap", "In - Window"])
+
+    def test_filter_deduplicates_adjacent_opener_identity(self):
+        tracks = parse_song_history(
+            {
+                "song_history": [
+                    {"played_at": 1781935170, "duration": 90, "song": {"artist": "Opener", "title": "Overlap"}},
+                    {"played_at": 1781935220, "song": {"artist": "Opener", "title": "Overlap"}},
+                    {"played_at": 1781935320, "song": {"artist": "Next", "title": "Track"}},
+                ]
+            }
+        )
+
+        filtered = filter_tracks_for_session(tracks, started_at=1781935200, ended_at=1781935500)
+
+        self.assertEqual([track.display for track in filtered], ["Opener - Overlap", "Next - Track"])
+
     def test_filter_includes_start_and_end_boundaries(self):
         tracks = parse_song_history(
             {
@@ -141,6 +171,28 @@ class TracklistTest(unittest.TestCase):
         )
         self.assertEqual(episode_relative_timestamp({"played_at": "bad"}, started_at), "--:--:--")
 
+    def test_episode_relative_timestamp_clamps_only_first_track_inside_startup_grace(self):
+        started_at = "2026-06-25T14:53:20+00:00"
+        track = {"played_at": "2026-06-25T14:53:43+00:00"}
+
+        self.assertEqual(
+            episode_relative_timestamp(track, started_at, startup_grace_seconds=30, is_first_track=True),
+            "0:00:00",
+        )
+        self.assertEqual(
+            episode_relative_timestamp(track, started_at, startup_grace_seconds=30, is_first_track=False),
+            "0:00:23",
+        )
+        self.assertEqual(
+            episode_relative_timestamp(
+                {"played_at": "2026-06-25T14:54:05+00:00"},
+                started_at,
+                startup_grace_seconds=30,
+                is_first_track=True,
+            ),
+            "0:00:45",
+        )
+
     def test_format_tracklist_with_started_at_uses_podcast_offsets(self):
         tracks = parse_song_history(
             {
@@ -157,6 +209,21 @@ class TracklistTest(unittest.TestCase):
         self.assertEqual(
             format_tracklist(tracks, started_at=1782399200),
             "Tracklist\n\n0:00:00 DJ Magic Touch - Just Relax\n0:03:24 EncryptionUK, Jungle George - Ruckus Rideout",
+        )
+
+    def test_format_tracklist_clamps_first_track_inside_startup_grace_only(self):
+        tracks = parse_song_history(
+            {
+                "song_history": [
+                    {"played_at": 1782399223, "song": {"artist": "Crystal Clear, Alibi", "title": "Big Sound"}},
+                    {"played_at": 1782399283, "song": {"artist": "HLZ", "title": "All My Life"}},
+                ]
+            }
+        )
+
+        self.assertEqual(
+            format_tracklist(tracks, started_at=1782399200),
+            "Tracklist\n\n0:00:00 Crystal Clear, Alibi - Big Sound\n0:01:23 HLZ - All My Life",
         )
 
     def test_description_append_and_update_without_duplicate(self):

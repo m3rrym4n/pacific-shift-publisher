@@ -85,6 +85,8 @@ def _should_skip_error(error):
 def _safe_track(track):
     return {
         "played_at": track.get("played_at"),
+        "played_at_epoch": track.get("played_at_epoch"),
+        "duration": track.get("duration"),
         "artist": track.get("artist"),
         "title": track.get("title"),
         "text": track.get("text"),

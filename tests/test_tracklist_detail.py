@@ -61,6 +61,49 @@ class TracklistDetailRouteTest(unittest.TestCase):
         self.assertIn("Fallback Display", body)
         self.assertNotIn("super-secret", body)
 
+    def test_tracklist_detail_clamps_first_row_inside_startup_grace(self):
+        run = self.store.mark_stream_start(
+            run_id="tracklist-grace-run",
+            session_id="tracklist-grace-run",
+            started_at="2026-06-25T14:53:20+00:00",
+            station="Storm Surge",
+            show_name="Storm Surge",
+        )
+        run = self.store.mark_stream_end(
+            run_id=run["run_id"],
+            ended_at="2026-06-25T14:59:30+00:00",
+        )
+        self.store.update_step_status(
+            run["run_id"],
+            "acquire_tracklist",
+            "success",
+            message="Tracklist acquired with 2 tracks.",
+            error_details={
+                "track_count_filtered": 2,
+                "tracks": [
+                    {
+                        "played_at": "2026-06-25T14:53:43+00:00",
+                        "artist": "Crystal Clear, Alibi",
+                        "title": "Big Sound",
+                    },
+                    {
+                        "played_at": "2026-06-25T14:54:43+00:00",
+                        "artist": "HLZ",
+                        "title": "All My Life",
+                    },
+                ],
+                "tracklist": "Tracklist\n\n0:00:00 Crystal Clear, Alibi - Big Sound\n0:01:23 HLZ - All My Life",
+            },
+        )
+
+        response = self.client.get(f"/runs/{run['run_id']}/tracklist")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("0:00:00 Crystal Clear, Alibi - Big Sound", body)
+        self.assertIn("0:01:23 HLZ - All My Life", body)
+        self.assertNotIn("2026-06-25T14:53:43+00:00", body)
+
     def test_tracklist_detail_route_returns_404_for_unknown_run(self):
         response = self.client.get("/runs/missing-run/tracklist")
 

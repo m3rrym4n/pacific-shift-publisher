@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 EMPTY_TRACKLIST_MESSAGE = "No AzuraCast track history was found for this session window."
 UNAVAILABLE_OFFSET = "--:--:--"
+STARTUP_GRACE_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -100,33 +101,70 @@ def filter_tracks_for_session(entries, started_at, ended_at):
         return []
     selected = [
         entry for entry in entries
-        if entry.played_at_epoch is not None and start_epoch <= entry.played_at_epoch <= end_epoch
+        if entry.played_at_epoch is not None
+        and (
+            start_epoch <= entry.played_at_epoch <= end_epoch
+            or track_overlaps_session_start(entry, start_epoch)
+        )
     ]
-    return sorted(selected, key=lambda entry: entry.played_at_epoch)
+    return dedupe_adjacent_tracks(sorted(selected, key=lambda entry: entry.played_at_epoch))
 
 
-def format_tracklist(entries, started_at=None):
+def format_tracklist(entries, started_at=None, startup_grace_seconds=STARTUP_GRACE_SECONDS):
     lines = ["Tracklist", ""]
     if not entries:
         lines.append(EMPTY_TRACKLIST_MESSAGE)
         return "\n".join(lines)
     for index, entry in enumerate(entries, start=1):
         if started_at is not None:
-            lines.append(f"{episode_relative_timestamp(entry, started_at)} {track_display(entry)}")
+            lines.append(
+                f"{episode_relative_timestamp(entry, started_at, startup_grace_seconds, index == 1)} {track_display(entry)}"
+            )
         else:
             lines.append(f"{index:02d}. {track_display(entry)}")
     return "\n".join(lines)
 
 
-def episode_relative_timestamp(track, started_at):
+def episode_relative_timestamp(track, started_at, startup_grace_seconds=None, is_first_track=False):
     start_epoch = to_epoch_seconds(started_at)
     played_epoch = to_epoch_seconds(track_value(track, "played_at_epoch"))
     if played_epoch is None:
         played_epoch = to_epoch_seconds(track_value(track, "played_at"))
     if start_epoch is None or played_epoch is None:
         return UNAVAILABLE_OFFSET
-    offset_seconds = max(0, played_epoch - start_epoch)
+    observed_offset_seconds = played_epoch - start_epoch
+    offset_seconds = max(0, observed_offset_seconds)
+    if (
+        is_first_track
+        and startup_grace_seconds is not None
+        and 0 <= observed_offset_seconds <= startup_grace_seconds
+    ):
+        offset_seconds = 0
     return format_offset_seconds(offset_seconds)
+
+
+def track_overlaps_session_start(track, start_epoch):
+    played_epoch = to_epoch_seconds(track_value(track, "played_at_epoch"))
+    duration = parse_int(track_value(track, "duration"))
+    if played_epoch is None or duration is None or duration <= 0:
+        return False
+    return played_epoch < start_epoch <= played_epoch + duration
+
+
+def dedupe_adjacent_tracks(entries):
+    deduped = []
+    previous_key = None
+    for entry in entries:
+        key = normalize_track_identity(track_display(entry))
+        if key and key == previous_key:
+            continue
+        deduped.append(entry)
+        previous_key = key
+    return deduped
+
+
+def normalize_track_identity(value):
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
 
 
 def format_offset_seconds(offset_seconds):

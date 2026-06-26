@@ -19,7 +19,10 @@ def build_tracklist_detail_view_model(run_id, store=None, event_store=None):
 
     event = _latest_tracklist_event(event_store, run_id)
     details = event.get("details") if event else {}
-    tracks = [_build_track_row(track, run["started_at"]) for track in details.get("tracks") or []]
+    tracks = [
+        _build_track_row(track, run["started_at"], index == 0)
+        for index, track in enumerate(details.get("tracks") or [])
+    ]
     return {
         "found": True,
         "message": None,
@@ -44,9 +47,9 @@ def _latest_tracklist_event(event_store, run_id):
     return successful[-1] if successful else None
 
 
-def _build_track_row(track, started_at):
+def _build_track_row(track, started_at, is_first_track=False):
     return {
-        "played_at": episode_relative_timestamp(track, started_at),
+        "played_at": episode_relative_timestamp(track, started_at, is_first_track=is_first_track),
         "artist": track.get("artist") or "Unknown artist",
         "title": track.get("title") or track.get("display") or track.get("text") or "Unknown track",
     }

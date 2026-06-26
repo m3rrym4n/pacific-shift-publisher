@@ -176,6 +176,79 @@ class AzuraCastHistoryTest(unittest.TestCase):
         self.assertEqual(result["track_count_total"], 5)
         self.assertEqual(result["track_count_filtered"], 3)
 
+    def test_generate_tracklist_includes_overlapping_opener_and_startup_grace(self):
+        self.config_store.save_config(
+            {
+                "enabled": True,
+                "base_url": "https://azuracast.example",
+                "station_shortcode": "storm_surge",
+            }
+        )
+        run = self.state_store.mark_stream_start(
+            session_id="session-opener",
+            started_at="2026-06-20T06:00:00+00:00",
+            station="Storm Surge",
+        )
+        run = self.state_store.mark_stream_end(
+            run_id=run["run_id"],
+            ended_at="2026-06-20T06:05:00+00:00",
+        )
+        http_get = Mock(
+            return_value=FakeResponse(
+                payload={
+                    "song_history": [
+                        {"played_at": 1781935180, "duration": 90, "song": {"artist": "Known", "title": "Opener"}},
+                        {"played_at": 1781935223, "song": {"artist": "First", "title": "Inside Grace"}},
+                        {"played_at": 1781935283, "song": {"artist": "Second", "title": "Normal Offset"}},
+                    ]
+                }
+            )
+        )
+
+        result = generate_tracklist_for_run(run["run_id"], store=self.state_store, http_get=http_get)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["tracklist"],
+            "Tracklist\n\n0:00:00 Known - Opener\n0:00:23 First - Inside Grace\n0:01:23 Second - Normal Offset",
+        )
+        self.assertEqual([track["display"] for track in result["tracks"]], [
+            "Known - Opener",
+            "First - Inside Grace",
+            "Second - Normal Offset",
+        ])
+
+    def test_generate_tracklist_clamps_first_public_track_inside_startup_grace(self):
+        self.config_store.save_config(
+            {
+                "enabled": True,
+                "base_url": "https://azuracast.example",
+                "station_shortcode": "storm_surge",
+            }
+        )
+        run = self.state_store.mark_stream_start(
+            session_id="session-grace",
+            started_at="2026-06-20T06:00:00+00:00",
+        )
+        run = self.state_store.mark_stream_end(run_id=run["run_id"], ended_at="2026-06-20T06:05:00+00:00")
+        http_get = Mock(
+            return_value=FakeResponse(
+                payload={
+                    "song_history": [
+                        {"played_at": 1781935223, "song": {"artist": "First", "title": "Inside Grace"}},
+                        {"played_at": 1781935283, "song": {"artist": "Second", "title": "Normal Offset"}},
+                    ]
+                }
+            )
+        )
+
+        result = generate_tracklist_for_run(run["run_id"], store=self.state_store, http_get=http_get)
+
+        self.assertEqual(
+            result["tracklist"],
+            "Tracklist\n\n0:00:00 First - Inside Grace\n0:01:23 Second - Normal Offset",
+        )
+
     def test_generate_tracklist_requires_completed_window(self):
         run = self.state_store.mark_stream_start(session_id="open-session")
 
