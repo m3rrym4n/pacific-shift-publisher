@@ -1,6 +1,13 @@
 {% extends "layouts/base.html" %}
 
 {% block content %}
+<div class="d-flex justify-content-end mb-3">
+    <form class="d-flex align-items-center gap-2" method="post" action="{{ url_for('import_run') }}" enctype="multipart/form-data">
+        <input class="form-control form-control-sm" type="file" name="snapshot_file" accept="application/json,.json" aria-label="Pipeline run snapshot JSON">
+        <button class="btn btn-primary btn-sm" type="submit">Import Run</button>
+    </form>
+</div>
+
 {% if not runs.has_runs %}
     <div class="alert alert-info" role="status">
         <strong>{{ runs.empty_message }}</strong>
@@ -71,15 +78,18 @@
                                 </details>
                             </td>
                             <td>
-                                {% if row.can_cancel %}
-                                    <form method="post" action="{{ url_for('cancel_run', run_id=row.run_id) }}">
-                                        <button class="btn btn-outline-danger btn-sm" type="submit">
-                                            Cancel Run
-                                        </button>
-                                    </form>
-                                {% else %}
-                                    <span class="text-secondary">None</span>
-                                {% endif %}
+                                <div class="d-flex flex-wrap gap-2">
+                                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_run', run_id=row.run_id) }}">
+                                        Export
+                                    </a>
+                                    {% if row.can_cancel %}
+                                        <form method="post" action="{{ url_for('cancel_run', run_id=row.run_id) }}">
+                                            <button class="btn btn-outline-danger btn-sm" type="submit">
+                                                Cancel Run
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                </div>
                             </td>
                         </tr>
                     {% endfor %}

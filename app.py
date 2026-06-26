@@ -2,7 +2,7 @@ import os
 import tempfile
 
 import requests
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
 from azuracast_config import AzuraCastConfigStore
@@ -16,12 +16,20 @@ from dashboard import build_dashboard_view_model
 from logs_view import build_logs_download, build_logs_view_model, logs_download_filename
 from navigation import get_navigation
 from pipeline_logging import get_pipeline_logger
+from pipeline_run_snapshot import (
+    SnapshotImportError,
+    export_run_snapshot,
+    import_run_snapshot,
+    load_snapshot_file,
+    snapshot_filename,
+)
 from pipeline_state import get_pipeline_store
 from rss_source import RssSourceStore, refresh_rss_source
 from runs_view import build_recent_runs_view_model
 from tracklist_detail import build_tracklist_detail_view_model
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "publisher-dev-secret")
 
 CASTOPOD_URL = os.getenv("CASTOPOD_URL")
 API_USER = os.getenv("API_USER")
@@ -133,6 +141,35 @@ def runs():
         page_description="Recent pipeline automation attempts and step outcomes.",
         runs=build_recent_runs_view_model(),
     )
+
+
+@app.route("/runs/<run_id>/export")
+def export_run(run_id):
+    snapshot = export_run_snapshot(run_id, get_pipeline_store(), get_pipeline_logger())
+    if not snapshot:
+        return jsonify({"ok": False, "message": "Pipeline run was not found."}), 404
+
+    body = jsonify(snapshot)
+    body.headers["Content-Disposition"] = f'attachment; filename="{snapshot_filename(run_id)}"'
+    return body
+
+
+@app.route("/runs/import", methods=["POST"])
+def import_run():
+    upload_file = request.files.get("snapshot_file")
+    if not upload_file or not upload_file.filename:
+        flash("Choose a pipeline run snapshot JSON file to import.", "warning")
+        return redirect(url_for("runs"), code=303)
+
+    try:
+        snapshot = load_snapshot_file(upload_file)
+        run = import_run_snapshot(snapshot, get_pipeline_store())
+    except SnapshotImportError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("runs"), code=303)
+
+    flash(f"Imported pipeline run {run['run_id'][:8]}.", "success")
+    return redirect(url_for("runs"), code=303)
 
 
 @app.route("/runs/current/cancel", methods=["POST"])
