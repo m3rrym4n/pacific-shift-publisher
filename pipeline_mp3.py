@@ -1,11 +1,12 @@
 import os
+import re
 import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import requests
 
@@ -20,6 +21,10 @@ DEFAULT_READY_TIMEOUT_SECONDS = 60
 DEFAULT_POLL_INTERVAL_SECONDS = 5
 DEFAULT_DOWNLOAD_TIMEOUT_SECONDS = 120
 MP3_CONTENT_TYPES = {"audio/mpeg", "audio/mp3", "audio/x-mpeg", "application/octet-stream"}
+PODCAST_ID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -209,68 +214,160 @@ def wait_for_podcast_readiness(
         return {"ok": False, "skipped": True, "error": "AzuraCast integration is disabled."}
     if not config.base_url:
         return {"ok": False, "skipped": True, "error": "AzuraCast base URL is not configured."}
-    if not (config.station_shortcode or config.station_id):
-        return {"ok": False, "skipped": True, "error": "AzuraCast station shortcode or station ID is not configured."}
+    if not config.station_id:
+        return {"ok": False, "skipped": True, "error": "AzuraCast station ID is not configured."}
     api_key = os.getenv("AZURACAST_API_KEY")
     if not api_key:
         return {"ok": False, "error": "AZURACAST_API_KEY is not configured."}
 
-    url = resolve_podcast_api_url(config, source_config)
+    endpoint = resolve_podcast_api_endpoint(config, source_config)
+    if not endpoint["ok"]:
+        return {"ok": False, "error": endpoint["error"], "details": endpoint["diagnostics"]}
+
+    url = endpoint["url"]
     headers = {"Authorization": f"Bearer {api_key}"}
-    _emit(event_store, run, "azuracast_podcast_readiness_started", "in_progress", "Checking AzuraCast podcast readiness.", {"podcast_api_url": url})
+    base_diagnostics = endpoint["diagnostics"]
+    _emit(
+        event_store,
+        run,
+        "azuracast_podcast_readiness_started",
+        "in_progress",
+        "Checking AzuraCast podcast readiness.",
+        base_diagnostics,
+    )
 
     attempts = max(1, int(timeout_seconds // max(1, poll_interval_seconds)) + 1)
     last_error = None
     for attempt in range(1, attempts + 1):
         try:
             response = http_get(url, headers=headers, timeout=15)
+            response_diagnostics = _response_diagnostics(response)
             response.raise_for_status()
             payload = response.json()
         except requests.RequestException as exc:
             last_error = f"AzuraCast podcast API request failed: {exc.__class__.__name__}"
-            _emit(event_store, run, "azuracast_podcast_readiness_failed", "failed", last_error, {"podcast_api_url": url})
-            return {"ok": False, "error": last_error, "details": {"podcast_api_url": url}}
+            details = dict(base_diagnostics)
+            details.update(_response_diagnostics(getattr(exc, "response", None)))
+            details["readiness_decision"] = "api_request_failed"
+            _emit(event_store, run, "azuracast_podcast_readiness_failed", "failed", last_error, details)
+            return {"ok": False, "error": last_error, "details": details}
         except ValueError:
             last_error = "AzuraCast podcast API response was not valid JSON."
-            _emit(event_store, run, "azuracast_podcast_readiness_failed", "failed", last_error, {"podcast_api_url": url})
-            return {"ok": False, "error": last_error, "details": {"podcast_api_url": url}}
+            details = dict(base_diagnostics)
+            details.update(response_diagnostics)
+            details["readiness_decision"] = "invalid_json"
+            _emit(event_store, run, "azuracast_podcast_readiness_failed", "failed", last_error, details)
+            return {"ok": False, "error": last_error, "details": details}
 
+        episodes = normalize_episode_list(payload)
+        candidate_details = [_episode_diagnostics(episode) for episode in episodes]
         episode = find_published_episode(payload, source_config=source_config)
         if episode:
+            selected = _episode_diagnostics(episode)
             details = {
-                "podcast_api_url": url,
+                **base_diagnostics,
+                **response_diagnostics,
+                "episodes_returned": len(episodes),
+                "candidate_episodes": candidate_details,
                 "podcast_episode_id": episode.get("id") or episode.get("guid"),
                 "podcast_episode_title": episode.get("title") or episode.get("name"),
                 "podcast_episode_status": episode.get("status"),
+                "selected_episode_id": selected["id"],
+                "selected_episode_title": selected["title"],
+                "readiness_fields_used": ["is_published", "has_media", "links.download"],
+                "readiness_decision": "published_with_media",
                 "readiness_attempt": attempt,
             }
             _emit(event_store, run, "azuracast_podcast_readiness_succeeded", "success", "AzuraCast podcast episode is published.", details)
             return {"ok": True, "details": details}
 
         last_error = "AzuraCast podcast episode is not published yet."
+        last_details = dict(base_diagnostics)
+        last_details.update(response_diagnostics)
+        last_details.update(
+            {
+                "episodes_returned": len(episodes),
+                "candidate_episodes": candidate_details,
+                "readiness_fields_used": ["is_published", "has_media", "links.download"],
+                "readiness_decision": "not_ready",
+            }
+        )
         if attempt < attempts:
             sleep_func(poll_interval_seconds)
 
-    _emit(event_store, run, "azuracast_podcast_readiness_timeout", "failed", last_error, {"podcast_api_url": url, "attempts": attempts})
-    return {"ok": False, "error": "AzuraCast podcast readiness timed out.", "details": {"podcast_api_url": url, "attempts": attempts}}
+    timeout_details = dict(last_details)
+    timeout_details["attempts"] = attempts
+    _emit(event_store, run, "azuracast_podcast_readiness_timeout", "failed", last_error, timeout_details)
+    return {"ok": False, "error": "AzuraCast podcast readiness timed out.", "details": timeout_details}
 
 
 def resolve_podcast_api_url(config, source_config):
-    station = quote(str(config.station_id or config.station_shortcode), safe="")
+    endpoint = resolve_podcast_api_endpoint(config, source_config)
+    if not endpoint["ok"]:
+        raise ValueError(endpoint["error"])
+    return endpoint["url"]
+
+
+def resolve_podcast_api_endpoint(config, source_config):
+    station_id = getattr(config, "station_id", None)
     base_url = config.base_url.rstrip("/")
-    podcast = getattr(source_config, "podcast_identifier", None)
-    if podcast:
-        return f"{base_url}/api/station/{station}/podcasts/{quote(str(podcast), safe='')}/episodes"
-    return f"{base_url}/api/station/{station}/podcasts"
+    podcast_id = derive_podcast_id(source_config)
+    diagnostics = {
+        "azuracast_base_url": base_url,
+        "station_id": station_id,
+        "station_shortcode": getattr(config, "station_shortcode", None),
+        "rss_feed_url": getattr(source_config, "feed_url", None),
+        "configured_podcast_identifier": getattr(source_config, "podcast_identifier", None),
+        "derived_podcast_id": podcast_id,
+    }
+    if not station_id:
+        diagnostics["readiness_decision"] = "missing_station_id"
+        return {"ok": False, "error": "AzuraCast station ID is not configured.", "diagnostics": diagnostics}
+    if not podcast_id:
+        diagnostics["readiness_decision"] = "missing_podcast_id"
+        return {"ok": False, "error": "AzuraCast podcast ID could not be derived from RSS source configuration.", "diagnostics": diagnostics}
+
+    station = quote(str(station_id), safe="")
+    podcast = quote(str(podcast_id), safe="")
+    url = f"{base_url}/api/station/{station}/podcast/{podcast}/episodes"
+    diagnostics["podcast_api_url"] = url
+    diagnostics["candidate_endpoint"] = url
+    return {"ok": True, "url": url, "diagnostics": diagnostics}
+
+
+def derive_podcast_id(source_config):
+    configured = getattr(source_config, "podcast_identifier", None)
+    if is_podcast_id(configured):
+        return str(configured).strip()
+    feed_url = getattr(source_config, "feed_url", None)
+    if not feed_url:
+        return None
+    parsed = urlparse(feed_url)
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    for index, segment in enumerate(segments):
+        if segment in {"podcast", "podcasts"} and index + 1 < len(segments):
+            candidate = segments[index + 1]
+            if is_podcast_id(candidate):
+                return candidate
+    for segment in segments:
+        if is_podcast_id(segment):
+            return segment
+    return None
+
+
+def is_podcast_id(value):
+    if value is None:
+        return False
+    return PODCAST_ID_PATTERN.match(str(value).strip()) is not None
 
 
 def find_published_episode(payload, source_config=None):
     episodes = normalize_episode_list(payload)
-    podcast_identifier = str(getattr(source_config, "podcast_identifier", "") or "").lower()
+    podcast_identifier = derive_podcast_id(source_config)
     if podcast_identifier:
         episodes = [episode for episode in episodes if episode_matches_podcast(episode, podcast_identifier)]
     for episode in episodes:
-        if is_episode_published(episode):
+        if is_episode_ready(episode):
             return episode
     return None
 
@@ -296,6 +393,7 @@ def normalize_episode_list(payload):
 
 
 def episode_matches_podcast(episode, podcast_identifier):
+    podcast_identifier = str(podcast_identifier or "").lower()
     values = [
         episode.get("podcast_id"),
         episode.get("podcast"),
@@ -309,6 +407,10 @@ def episode_matches_podcast(episode, podcast_identifier):
     return any(str(value or "").lower() == podcast_identifier for value in values)
 
 
+def is_episode_ready(episode):
+    return is_episode_published(episode) and episode_has_media(episode) and episode_has_download_when_present(episode)
+
+
 def is_episode_published(episode):
     if episode.get("is_published") is True or episode.get("published") is True:
         return True
@@ -316,6 +418,51 @@ def is_episode_published(episode):
     if status in {"published", "complete", "completed"}:
         return True
     return bool(episode.get("published_at") or episode.get("publish_at"))
+
+
+def episode_has_media(episode):
+    if episode.get("has_media") is True:
+        return True
+    if episode.get("media") or episode.get("media_url") or episode.get("enclosure_url"):
+        return True
+    return False
+
+
+def episode_has_download_when_present(episode):
+    links = episode.get("links")
+    if links is None:
+        return True
+    if isinstance(links, dict):
+        return bool(links.get("download"))
+    return True
+
+
+def _episode_diagnostics(episode):
+    return {
+        "id": episode.get("id") or episode.get("guid"),
+        "title": episode.get("title") or episode.get("name"),
+        "publish_at": episode.get("publish_at") or episode.get("published_at"),
+        "is_published": is_episode_published(episode),
+        "has_media": episode_has_media(episode),
+        "has_download_link": episode_has_download_when_present(episode),
+    }
+
+
+def _response_diagnostics(response):
+    if response is None:
+        return {}
+    content_type = None
+    body_snippet = None
+    if getattr(response, "headers", None):
+        content_type = response.headers.get("content-type")
+    text = getattr(response, "text", None)
+    if text:
+        body_snippet = str(text)[:500]
+    return {
+        "http_status_code": getattr(response, "status_code", None),
+        "response_content_type": content_type,
+        "response_body_snippet": body_snippet,
+    }
 
 
 def select_matching_enclosure(items, run):

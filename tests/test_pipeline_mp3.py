@@ -11,13 +11,18 @@ from azuracast_config import AzuraCastConfig, AzuraCastConfigStore
 from pipeline_logging import StructuredPipelineLogger
 from pipeline_mp3 import (
     acquire_mp3_for_run,
+    derive_podcast_id,
     find_published_episode,
     resolve_podcast_api_url,
     select_matching_enclosure,
+    wait_for_podcast_readiness,
 )
 from pipeline_state import PipelineStateStore
 from rss_source import RssSourceStore
 from tests.test_rss_source import RSS_FIXTURE
+
+
+PODCAST_ID = "1f1712f1-14a4-6b16-b7b6-8b09cdf2c9b3"
 
 
 class FakeResponse:
@@ -87,40 +92,116 @@ class PipelineMp3Test(unittest.TestCase):
                 "enabled": True,
                 "base_url": "https://azuracast.example",
                 "station_shortcode": "storm_surge",
+                "station_id": "1",
             }
         )
         self.rss_store.save_config(
             {
                 "enabled": True,
                 "source_name": "Storm Surge AzuraCast Podcast",
-                "feed_url": "https://azuracast.example/public/storm_surge/podcast",
+                "feed_url": f"https://azuracast.example/api/station/storm_surge/public/podcast/{PODCAST_ID}/episodes",
                 "station_identifier": "storm_surge",
                 "podcast_identifier": "storm-surge",
             }
         )
 
-    def test_resolve_podcast_api_url_uses_configured_station_and_podcast(self):
+    def test_resolve_podcast_api_url_uses_station_id_and_derived_podcast_id(self):
         self.configure()
 
         url = resolve_podcast_api_url(self.config_store.get_config(), self.rss_store.get_config())
 
         self.assertEqual(
             url,
-            "https://azuracast.example/api/station/storm_surge/podcasts/storm-surge/episodes",
+            f"https://azuracast.example/api/station/1/podcast/{PODCAST_ID}/episodes",
         )
+        self.assertNotIn("/podcasts/storm_surge/episodes", url)
+        self.assertNotIn("/podcasts/storm-surge/episodes", url)
+
+    def test_derive_podcast_id_from_rss_feed_url(self):
+        self.rss_store.save_config(
+            {
+                "enabled": True,
+                "feed_url": f"https://azuracast.example/api/station/storm_surge/public/podcast/{PODCAST_ID}/episodes",
+                "podcast_identifier": "storm-surge",
+            }
+        )
+
+        self.assertEqual(derive_podcast_id(self.rss_store.get_config()), PODCAST_ID)
+
+    def test_resolve_podcast_api_url_rejects_missing_podcast_id(self):
+        self.config_store.save_config(
+            {
+                "enabled": True,
+                "base_url": "https://azuracast.example",
+                "station_id": "1",
+                "station_shortcode": "storm_surge",
+            }
+        )
+        self.rss_store.save_config(
+            {
+                "enabled": True,
+                "feed_url": "https://azuracast.example/public/storm_surge/podcast",
+                "podcast_identifier": "storm-surge",
+            }
+        )
+
+        with self.assertRaises(ValueError) as context:
+            resolve_podcast_api_url(self.config_store.get_config(), self.rss_store.get_config())
+
+        self.assertIn("podcast ID could not be derived", str(context.exception))
 
     def test_find_published_episode_accepts_flexible_shapes(self):
         episode = find_published_episode(
             {
                 "episodes": [
-                    {"id": "draft", "status": "draft", "podcast_slug": "storm-surge"},
-                    {"id": "published", "status": "published", "podcast_slug": "storm-surge"},
+                    {"id": "draft", "is_published": False, "has_media": True, "podcast_id": PODCAST_ID},
+                    {"id": "published", "is_published": True, "has_media": True, "links": {"download": "https://example.test/file.mp3"}, "podcast_id": PODCAST_ID},
                 ]
             },
-            source_config=type("Source", (), {"podcast_identifier": "storm-surge"})(),
+            source_config=type("Source", (), {"podcast_identifier": PODCAST_ID, "feed_url": None})(),
         )
 
         self.assertEqual(episode["id"], "published")
+
+    def test_readiness_fails_when_episode_is_not_published(self):
+        self.configure()
+        http_get = Mock(return_value=FakeResponse(payload={"episodes": [{"id": "draft", "is_published": False, "has_media": True, "podcast_id": PODCAST_ID}]}))
+
+        with patch.dict(os.environ, {"AZURACAST_API_KEY": "azuracast-secret"}):
+            result = wait_for_podcast_readiness(
+                self.run,
+                config=self.config_store.get_config(),
+                source_config=self.rss_store.get_config(),
+                http_get=http_get,
+                event_store=self.events,
+                timeout_seconds=0,
+                poll_interval_seconds=1,
+                sleep_func=lambda _: None,
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["details"]["readiness_decision"], "not_ready")
+        self.assertFalse(result["details"]["candidate_episodes"][0]["is_published"])
+
+    def test_readiness_fails_when_episode_has_no_media(self):
+        self.configure()
+        http_get = Mock(return_value=FakeResponse(payload={"episodes": [{"id": "no-media", "is_published": True, "has_media": False, "podcast_id": PODCAST_ID}]}))
+
+        with patch.dict(os.environ, {"AZURACAST_API_KEY": "azuracast-secret"}):
+            result = wait_for_podcast_readiness(
+                self.run,
+                config=self.config_store.get_config(),
+                source_config=self.rss_store.get_config(),
+                http_get=http_get,
+                event_store=self.events,
+                timeout_seconds=0,
+                poll_interval_seconds=1,
+                sleep_func=lambda _: None,
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["details"]["readiness_decision"], "not_ready")
+        self.assertFalse(result["details"]["candidate_episodes"][0]["has_media"])
 
     def test_matching_enclosure_prefers_newest_item_after_session_start(self):
         item = select_matching_enclosure(
@@ -159,7 +240,7 @@ class PipelineMp3Test(unittest.TestCase):
         self.configure()
         http_get = Mock(
             side_effect=[
-                FakeResponse(payload={"episodes": [{"id": "ep-1", "status": "published", "podcast_slug": "storm-surge"}]}),
+                FakeResponse(payload={"episodes": [{"id": "ep-1", "title": "Storm Surge Episode", "is_published": True, "has_media": True, "links": {"download": "https://azuracast.example/download.mp3"}, "podcast_id": PODCAST_ID}]}),
                 FakeResponse(text=RSS_FIXTURE),
                 FakeResponse(content=b"mp3-data", headers={"content-type": "audio/mpeg"}),
             ]
@@ -200,13 +281,18 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertIn("acquire_mp3.download_succeeded", event_names)
         self.assertIn("acquire_mp3.validation_succeeded", event_names)
         self.assertIn("castopod_draft.create_succeeded", event_names)
+        readiness_event = next(event for event in events if event["event_name"] == "azuracast_podcast_readiness_succeeded")
+        self.assertEqual(readiness_event["details"]["derived_podcast_id"], PODCAST_ID)
+        self.assertEqual(readiness_event["details"]["readiness_decision"], "published_with_media")
+        self.assertEqual(readiness_event["details"]["episodes_returned"], 1)
+        self.assertEqual(readiness_event["details"]["selected_episode_id"], "ep-1")
         self.assertEqual(http_post.call_count, 1)
         self.assertNotIn("azuracast-secret", str(events))
         self.assertNotIn("publisher-secret", str(events))
 
     def test_acquire_mp3_does_not_refresh_rss_before_readiness(self):
         self.configure()
-        http_get = Mock(return_value=FakeResponse(payload={"episodes": [{"id": "ep-1", "status": "draft"}]}))
+        http_get = Mock(return_value=FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": False, "has_media": True, "podcast_id": PODCAST_ID}]}))
 
         with patch.dict(os.environ, {"AZURACAST_API_KEY": "azuracast-secret"}):
             updated = acquire_mp3_for_run(
@@ -251,16 +337,17 @@ class PipelineMp3Test(unittest.TestCase):
                 "enabled": True,
                 "base_url": "https://azuracast.example",
                 "station_shortcode": "storm_surge",
+                "station_id": "1",
             }
         )
         self.rss_store.save_config(
             {
                 "enabled": False,
-                "feed_url": "https://azuracast.example/public/storm_surge/podcast",
+                "feed_url": f"https://azuracast.example/api/station/storm_surge/public/podcast/{PODCAST_ID}/episodes",
             }
         )
         http_get = Mock(
-            return_value=FakeResponse(payload={"episodes": [{"id": "ep-1", "status": "published"}]})
+            return_value=FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "podcast_id": PODCAST_ID}]})
         )
 
         with patch.dict(os.environ, {"AZURACAST_API_KEY": "azuracast-secret"}):
@@ -279,7 +366,7 @@ class PipelineMp3Test(unittest.TestCase):
 
     def test_acquire_mp3_handles_api_error(self):
         self.configure()
-        http_get = Mock(return_value=FakeResponse(payload={}, status_code=500))
+        http_get = Mock(return_value=FakeResponse(payload={}, text="server exploded", status_code=500, headers={"content-type": "application/json"}))
 
         with patch.dict(os.environ, {"AZURACAST_API_KEY": "azuracast-secret"}):
             updated = acquire_mp3_for_run(
@@ -294,6 +381,11 @@ class PipelineMp3Test(unittest.TestCase):
         step = self._step(updated, "acquire_mp3")
         self.assertEqual(step["status"], "failed")
         self.assertIn("podcast API request failed", step["message"])
+        events = self.events.find_events(run_id=self.run["run_id"], step_key="acquire_mp3")
+        failed = next(event for event in events if event["event_name"] == "azuracast_podcast_readiness_failed")
+        self.assertEqual(failed["details"]["http_status_code"], 500)
+        self.assertEqual(failed["details"]["candidate_endpoint"], f"https://azuracast.example/api/station/1/podcast/{PODCAST_ID}/episodes")
+        self.assertIn("server exploded", failed["details"]["response_body_snippet"])
 
     def test_acquire_mp3_fails_when_no_matching_enclosure(self):
         self.configure()
@@ -303,7 +395,7 @@ class PipelineMp3Test(unittest.TestCase):
         )
         http_get = Mock(
             side_effect=[
-                FakeResponse(payload={"episodes": [{"id": "ep-1", "status": "published", "podcast_slug": "storm-surge"}]}),
+                FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "podcast_id": PODCAST_ID}]}),
                 FakeResponse(text=old_feed),
             ]
         )
@@ -326,7 +418,7 @@ class PipelineMp3Test(unittest.TestCase):
         self.configure()
         http_get = Mock(
             side_effect=[
-                FakeResponse(payload={"episodes": [{"id": "ep-1", "status": "published", "podcast_slug": "storm-surge"}]}),
+                FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "podcast_id": PODCAST_ID}]}),
                 FakeResponse(text=RSS_FIXTURE),
                 FakeResponse(status_code=404),
             ]
@@ -350,7 +442,7 @@ class PipelineMp3Test(unittest.TestCase):
         self.configure()
         http_get = Mock(
             side_effect=[
-                FakeResponse(payload={"episodes": [{"id": "ep-1", "status": "published", "podcast_slug": "storm-surge"}]}),
+                FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "podcast_id": PODCAST_ID}]}),
                 FakeResponse(text=RSS_FIXTURE),
                 FakeResponse(content=b"", headers={"content-type": "audio/mpeg"}),
             ]
