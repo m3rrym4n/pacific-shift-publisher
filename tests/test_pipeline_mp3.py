@@ -19,7 +19,6 @@ from pipeline_mp3 import (
 )
 from pipeline_state import PipelineStateStore
 from rss_source import RssSourceStore
-from tests.test_rss_source import RSS_FIXTURE
 
 
 PODCAST_ID = "1f1712f1-14a4-6b16-b7b6-8b09cdf2c9b3"
@@ -235,6 +234,7 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["details"]["selected_episode_id"], "scoped-episode")
         self.assertEqual(result["details"]["readiness_decision"], "published_with_media")
+        self.assertIsNone(result["details"]["podcast_episode_download_url"])
 
     def test_matching_enclosure_prefers_newest_item_after_session_start(self):
         item = select_matching_enclosure(
@@ -269,12 +269,11 @@ class PipelineMp3Test(unittest.TestCase):
 
         self.assertIsNone(item)
 
-    def test_acquire_mp3_success_refreshes_rss_downloads_audio_and_creates_draft(self):
+    def test_acquire_mp3_success_downloads_episode_url_and_creates_draft_without_rss_refresh(self):
         self.configure()
         http_get = Mock(
             side_effect=[
                 FakeResponse(payload={"episodes": [{"id": "ep-1", "title": "Storm Surge Episode", "is_published": True, "has_media": True, "links": {"download": "https://azuracast.example/download.mp3"}, "podcast_id": PODCAST_ID}]}),
-                FakeResponse(text=RSS_FIXTURE),
                 FakeResponse(content=b"mp3-data", headers={"content-type": "audio/mpeg"}),
             ]
         )
@@ -309,8 +308,8 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertEqual(step["status"], "success")
         self.assertEqual(updated["castopod_episode_id"], "321")
         self.assertIn("azuracast_podcast_readiness_succeeded", event_names)
-        self.assertIn("rss_source.refresh_succeeded", event_names)
-        self.assertIn("rss_enclosure.match_succeeded", event_names)
+        self.assertNotIn("rss_source.refresh_succeeded", event_names)
+        self.assertNotIn("rss_enclosure.match_succeeded", event_names)
         self.assertIn("acquire_mp3.download_succeeded", event_names)
         self.assertIn("acquire_mp3.validation_succeeded", event_names)
         self.assertIn("castopod_draft.create_succeeded", event_names)
@@ -319,6 +318,12 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertEqual(readiness_event["details"]["readiness_decision"], "published_with_media")
         self.assertEqual(readiness_event["details"]["episodes_returned"], 1)
         self.assertEqual(readiness_event["details"]["selected_episode_id"], "ep-1")
+        self.assertEqual(
+            readiness_event["details"]["podcast_episode_download_url"],
+            "https://azuracast.example/download.mp3",
+        )
+        self.assertEqual(http_get.call_args_list[1].args[0], "https://azuracast.example/download.mp3")
+        self.assertIsNone(self.rss_store.get_config().last_refresh_status)
         self.assertEqual(http_post.call_count, 1)
         self.assertNotIn("azuracast-secret", str(events))
         self.assertNotIn("publisher-secret", str(events))
@@ -364,7 +369,7 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertEqual(step["status"], "failed")
         self.assertIn("AZURACAST_API_KEY is not configured", step["message"])
 
-    def test_acquire_mp3_skips_when_rss_source_disabled(self):
+    def test_acquire_mp3_does_not_require_rss_source_to_be_enabled(self):
         self.config_store.save_config(
             {
                 "enabled": True,
@@ -380,22 +385,35 @@ class PipelineMp3Test(unittest.TestCase):
             }
         )
         http_get = Mock(
-            return_value=FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "podcast_id": PODCAST_ID}]})
+            side_effect=[
+                FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "links": {"download": "https://azuracast.example/download.mp3"}, "podcast_id": PODCAST_ID}]}),
+                FakeResponse(content=b"mp3-data", headers={"content-type": "audio/mpeg"}),
+            ]
         )
+        http_post = Mock(return_value=FakeResponse(payload={"id": 321}, status_code=201))
 
-        with patch.dict(os.environ, {"AZURACAST_API_KEY": "azuracast-secret"}):
+        with patch.dict(
+            os.environ,
+            {
+                "AZURACAST_API_KEY": "azuracast-secret",
+                "CASTOPOD_URL": "https://castopod.example",
+                "API_USER": "publisher",
+                "API_PASS": "publisher-secret",
+                "PODCAST_ID": "1",
+            },
+        ):
             updated = acquire_mp3_for_run(
                 self.run["run_id"],
                 self.state_store,
                 rss_store=self.rss_store,
                 http_get=http_get,
-                http_post=Mock(),
+                http_post=http_post,
                 event_store=self.events,
             )
 
         step = self._step(updated, "acquire_mp3")
-        self.assertEqual(step["status"], "failed")
-        self.assertIn("source is disabled", step["message"])
+        self.assertEqual(step["status"], "success")
+        self.assertIsNone(self.rss_store.get_config().last_refresh_status)
 
     def test_acquire_mp3_handles_api_error(self):
         self.configure()
@@ -420,17 +438,10 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertEqual(failed["details"]["candidate_endpoint"], f"https://azuracast.example/api/station/1/podcast/{PODCAST_ID}/episodes")
         self.assertIn("server exploded", failed["details"]["response_body_snippet"])
 
-    def test_acquire_mp3_fails_when_no_matching_enclosure(self):
+    def test_acquire_mp3_fails_when_ready_episode_has_no_download_url(self):
         self.configure()
-        old_feed = RSS_FIXTURE.replace(
-            "Thu, 25 Jun 2026 23:45:00 GMT",
-            "Thu, 25 Jun 2026 21:45:00 GMT",
-        )
         http_get = Mock(
-            side_effect=[
-                FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "podcast_id": PODCAST_ID}]}),
-                FakeResponse(text=old_feed),
-            ]
+            return_value=FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "podcast_id": PODCAST_ID}]})
         )
 
         with patch.dict(os.environ, {"AZURACAST_API_KEY": "azuracast-secret"}):
@@ -445,14 +456,15 @@ class PipelineMp3Test(unittest.TestCase):
 
         step = self._step(updated, "acquire_mp3")
         self.assertEqual(step["status"], "failed")
-        self.assertIn("No matching RSS enclosure", step["message"])
+        self.assertIn("No download URL in episode response", step["message"])
+        self.assertEqual(http_get.call_count, 1)
+        self.assertIsNone(self.rss_store.get_config().last_refresh_status)
 
     def test_acquire_mp3_handles_download_failure(self):
         self.configure()
         http_get = Mock(
             side_effect=[
-                FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "podcast_id": PODCAST_ID}]}),
-                FakeResponse(text=RSS_FIXTURE),
+                FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "links": {"download": "https://azuracast.example/download.mp3"}, "podcast_id": PODCAST_ID}]}),
                 FakeResponse(status_code=404),
             ]
         )
@@ -475,8 +487,7 @@ class PipelineMp3Test(unittest.TestCase):
         self.configure()
         http_get = Mock(
             side_effect=[
-                FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "podcast_id": PODCAST_ID}]}),
-                FakeResponse(text=RSS_FIXTURE),
+                FakeResponse(payload={"episodes": [{"id": "ep-1", "is_published": True, "has_media": True, "links": {"download": "https://azuracast.example/download.mp3"}, "podcast_id": PODCAST_ID}]}),
                 FakeResponse(content=b"", headers={"content-type": "audio/mpeg"}),
             ]
         )

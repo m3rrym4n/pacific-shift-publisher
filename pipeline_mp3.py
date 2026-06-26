@@ -14,7 +14,7 @@ from azuracast_config import get_azuracast_config
 from castopod_client import create_castopod_draft_episode
 from pipeline_logging import StructuredPipelineLogger
 from pipeline_state import utc_now
-from rss_source import RssSourceStore, refresh_rss_source
+from rss_source import RssSourceStore
 
 
 DEFAULT_READY_TIMEOUT_SECONDS = 60
@@ -143,30 +143,16 @@ def acquire_podcast_audio_for_run(
             }
         details.update(readiness.get("details", {}))
 
-        refresh = refresh_rss_source(store=rss_store, http_get=http_get, event_store=event_store)
-        if not refresh["ok"]:
-            error = refresh["message"]
-            _emit(event_store, run, "rss_source.refresh_failed", "failed", error, {"rss_refresh_status": refresh["status"]})
-            return {"ok": False, "error": error, "details": details}
-        _emit(
-            event_store,
-            run,
-            "rss_source.refresh_succeeded",
-            "success",
-            refresh["message"],
-            {"rss_item_count": len(refresh.get("items") or [])},
-        )
-
-        match = select_matching_enclosure(refresh.get("items") or [], run)
-        if not match:
-            error = "No matching RSS enclosure was found for the completed session."
-            _emit(event_store, run, "rss_enclosure.match_failed", "failed", error, {"item_count": len(refresh.get("items") or [])})
-            return {"ok": False, "error": error, "details": details}
-        _emit(event_store, run, "rss_enclosure.match_succeeded", "success", "RSS enclosure matched.", match)
-        details["rss_item"] = match
+        download_url = details.get("podcast_episode_download_url")
+        if not download_url:
+            return {
+                "ok": False,
+                "error": "No download URL in episode response.",
+                "details": details,
+            }
 
         try:
-            asset = download_audio_asset(match["enclosure_url"], http_get=http_get, event_store=event_store, run=run)
+            asset = download_audio_asset(download_url, http_get=http_get, event_store=event_store, run=run)
         except PipelineMp3Error as exc:
             return {"ok": False, "error": str(exc), "details": details}
         temp_path = asset.path
@@ -272,6 +258,7 @@ def wait_for_podcast_readiness(
                 "podcast_episode_id": episode.get("id") or episode.get("guid"),
                 "podcast_episode_title": episode.get("title") or episode.get("name"),
                 "podcast_episode_status": episode.get("status"),
+                "podcast_episode_download_url": (episode.get("links") or {}).get("download"),
                 "selected_episode_id": selected["id"],
                 "selected_episode_title": selected["title"],
                 "readiness_fields_used": ["is_published", "has_media", "links.download"],
