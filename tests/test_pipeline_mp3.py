@@ -203,6 +203,39 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertEqual(result["details"]["readiness_decision"], "not_ready")
         self.assertFalse(result["details"]["candidate_episodes"][0]["has_media"])
 
+    def test_readiness_accepts_scoped_episode_without_podcast_id(self):
+        self.configure()
+        http_get = Mock(
+            return_value=FakeResponse(
+                payload={
+                    "episodes": [
+                        {
+                            "id": "scoped-episode",
+                            "title": "Scoped Episode",
+                            "is_published": True,
+                            "has_media": True,
+                        }
+                    ]
+                }
+            )
+        )
+
+        with patch.dict(os.environ, {"AZURACAST_API_KEY": "azuracast-secret"}):
+            result = wait_for_podcast_readiness(
+                self.run,
+                config=self.config_store.get_config(),
+                source_config=self.rss_store.get_config(),
+                http_get=http_get,
+                event_store=self.events,
+                timeout_seconds=0,
+                poll_interval_seconds=1,
+                sleep_func=lambda _: None,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["details"]["selected_episode_id"], "scoped-episode")
+        self.assertEqual(result["details"]["readiness_decision"], "published_with_media")
+
     def test_matching_enclosure_prefers_newest_item_after_session_start(self):
         item = select_matching_enclosure(
             [

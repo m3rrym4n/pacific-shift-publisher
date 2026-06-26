@@ -364,7 +364,7 @@ def is_podcast_id(value):
 def find_published_episode(payload, source_config=None):
     episodes = normalize_episode_list(payload)
     podcast_identifier = derive_podcast_id(source_config)
-    if podcast_identifier:
+    if podcast_identifier and any(episode_has_podcast_identity(episode) for episode in episodes):
         episodes = [episode for episode in episodes if episode_matches_podcast(episode, podcast_identifier)]
     for episode in episodes:
         if is_episode_ready(episode):
@@ -405,6 +405,13 @@ def episode_matches_podcast(episode, podcast_identifier):
     if isinstance(nested, dict):
         values.extend([nested.get("id"), nested.get("slug"), nested.get("name"), nested.get("short_name")])
     return any(str(value or "").lower() == podcast_identifier for value in values)
+
+
+def episode_has_podcast_identity(episode):
+    if any(episode.get(key) for key in ("podcast_id", "podcast", "podcast_slug", "podcast_short_name", "slug")):
+        return True
+    nested = episode.get("podcast")
+    return isinstance(nested, dict) and any(nested.get(key) for key in ("id", "slug", "name", "short_name"))
 
 
 def is_episode_ready(episode):
