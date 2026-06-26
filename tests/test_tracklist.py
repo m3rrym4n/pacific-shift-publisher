@@ -19,6 +19,7 @@ class TracklistTest(unittest.TestCase):
                         "sh_id": 10,
                         "played_at": 1781935200,
                         "duration": "300",
+                        "playlist": "Storm Surge",
                         "streamer": "SeaCapn",
                         "song": {
                             "text": "Technimatic - Unity (Original Mix)",
@@ -34,6 +35,7 @@ class TracklistTest(unittest.TestCase):
         self.assertEqual(tracks[0].sh_id, "10")
         self.assertEqual(tracks[0].played_at_epoch, 1781935200)
         self.assertEqual(tracks[0].duration, 300)
+        self.assertEqual(tracks[0].playlist, "Storm Surge")
         self.assertEqual(tracks[0].streamer, "SeaCapn")
         self.assertEqual(tracks[0].artist, "Technimatic")
         self.assertEqual(tracks[0].title, "Unity (Original Mix)")
@@ -90,6 +92,63 @@ class TracklistTest(unittest.TestCase):
         filtered = filter_tracks_for_session(tracks, started_at=1781935200, ended_at=1781935500)
 
         self.assertEqual([track.display for track in filtered], ["Opener - Overlap", "In - Window"])
+
+    def test_filter_excludes_fallback_playlist_overlap_when_run_streamer_is_known(self):
+        tracks = parse_song_history(
+            {
+                "song_history": [
+                    {
+                        "played_at": 1781935170,
+                        "duration": 2580,
+                        "playlist": "Storm Surge",
+                        "streamer": "",
+                        "song": {"title": "stream 20260607-165830"},
+                    },
+                    {
+                        "played_at": 1781935223,
+                        "streamer": "SeaCapn",
+                        "song": {"artist": "L-Side", "title": "No Stress (Original Mix)"},
+                    },
+                ]
+            }
+        )
+
+        filtered = filter_tracks_for_session(
+            tracks,
+            started_at=1781935200,
+            ended_at=1781935500,
+            streamer="SeaCapn",
+        )
+
+        self.assertEqual([track.display for track in filtered], ["L-Side - No Stress (Original Mix)"])
+
+    def test_filter_keeps_live_dj_overlap_when_streamer_matches(self):
+        tracks = parse_song_history(
+            {
+                "song_history": [
+                    {
+                        "played_at": 1781935170,
+                        "duration": 90,
+                        "streamer": "SeaCapn",
+                        "song": {"artist": "Live", "title": "Opener"},
+                    },
+                    {
+                        "played_at": 1781935260,
+                        "streamer": "SeaCapn",
+                        "song": {"artist": "Next", "title": "Track"},
+                    },
+                ]
+            }
+        )
+
+        filtered = filter_tracks_for_session(
+            tracks,
+            started_at=1781935200,
+            ended_at=1781935500,
+            streamer="SeaCapn",
+        )
+
+        self.assertEqual([track.display for track in filtered], ["Live - Opener", "Next - Track"])
 
     def test_filter_deduplicates_adjacent_opener_identity(self):
         tracks = parse_song_history(

@@ -130,6 +130,7 @@ def generate_tracklist_for_run(run_id, store=None, config=None, http_get=None):
         parsed_tracks,
         started_at=run["started_at"],
         ended_at=run["ended_at"],
+        streamer=run.get("streamer"),
     )
     return {
         "ok": True,

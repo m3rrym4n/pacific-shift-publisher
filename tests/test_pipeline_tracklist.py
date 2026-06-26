@@ -32,7 +32,15 @@ class PipelineTracklistTest(unittest.TestCase):
                 "endpoint_url": "https://azuracast.example/api/nowplaying_static/storm.json",
                 "track_count_total": 12,
                 "track_count_filtered": 5,
-                "tracks": [{"display": "A - B", "played_at_epoch": 1781935200, "duration": 300}] * 5,
+                "tracks": [
+                    {
+                        "display": "A - B",
+                        "played_at_epoch": 1781935200,
+                        "duration": 300,
+                        "playlist": "Storm Surge",
+                        "streamer": "SeaCapn",
+                    }
+                ] * 5,
                 "tracklist": "Tracklist\n\n01. A - B",
             }
 
@@ -51,6 +59,8 @@ class PipelineTracklistTest(unittest.TestCase):
         self.assertEqual(events[-1]["details"]["tracks"][0]["display"], "A - B")
         self.assertEqual(events[-1]["details"]["tracks"][0]["played_at_epoch"], 1781935200)
         self.assertEqual(events[-1]["details"]["tracks"][0]["duration"], 300)
+        self.assertEqual(events[-1]["details"]["tracks"][0]["playlist"], "Storm Surge")
+        self.assertEqual(events[-1]["details"]["tracks"][0]["streamer"], "SeaCapn")
 
     def test_acquire_tracklist_skips_when_no_tracks_match(self):
         def generator(run_id, store=None):

@@ -14,6 +14,7 @@ class TrackHistoryEntry:
     played_at: str | None
     played_at_epoch: int | None
     duration: int | None
+    playlist: str | None
     streamer: str | None
     artist: str | None
     title: str | None
@@ -35,6 +36,7 @@ class TrackHistoryEntry:
             "played_at": self.played_at,
             "played_at_epoch": self.played_at_epoch,
             "duration": self.duration,
+            "playlist": self.playlist,
             "streamer": self.streamer,
             "artist": self.artist,
             "title": self.title,
@@ -77,6 +79,7 @@ def parse_song_history_entry(item):
         played_at=played_at,
         played_at_epoch=played_at_epoch,
         duration=parse_int(item.get("duration")),
+        playlist=clean_text(item.get("playlist")),
         streamer=clean_text(item.get("streamer")),
         artist=artist,
         title=title,
@@ -94,7 +97,7 @@ def parse_artist_title_text(text):
     return None, clean_text(text)
 
 
-def filter_tracks_for_session(entries, started_at, ended_at):
+def filter_tracks_for_session(entries, started_at, ended_at, streamer=None):
     start_epoch = to_epoch_seconds(started_at)
     end_epoch = to_epoch_seconds(ended_at)
     if start_epoch is None or end_epoch is None:
@@ -104,7 +107,7 @@ def filter_tracks_for_session(entries, started_at, ended_at):
         if entry.played_at_epoch is not None
         and (
             start_epoch <= entry.played_at_epoch <= end_epoch
-            or track_overlaps_session_start(entry, start_epoch)
+            or track_overlaps_session_start(entry, start_epoch, streamer=streamer)
         )
     ]
     return dedupe_adjacent_tracks(sorted(selected, key=lambda entry: entry.played_at_epoch))
@@ -143,10 +146,12 @@ def episode_relative_timestamp(track, started_at, startup_grace_seconds=None, is
     return format_offset_seconds(offset_seconds)
 
 
-def track_overlaps_session_start(track, start_epoch):
+def track_overlaps_session_start(track, start_epoch, streamer=None):
     played_epoch = to_epoch_seconds(track_value(track, "played_at_epoch"))
     duration = parse_int(track_value(track, "duration"))
     if played_epoch is None or duration is None or duration <= 0:
+        return False
+    if streamer and normalize_track_identity(track_value(track, "streamer")) != normalize_track_identity(streamer):
         return False
     return played_epoch < start_epoch <= played_epoch + duration
 

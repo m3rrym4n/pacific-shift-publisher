@@ -188,6 +188,7 @@ class AzuraCastHistoryTest(unittest.TestCase):
             session_id="session-opener",
             started_at="2026-06-20T06:00:00+00:00",
             station="Storm Surge",
+            streamer="SeaCapn",
         )
         run = self.state_store.mark_stream_end(
             run_id=run["run_id"],
@@ -197,9 +198,22 @@ class AzuraCastHistoryTest(unittest.TestCase):
             return_value=FakeResponse(
                 payload={
                     "song_history": [
-                        {"played_at": 1781935180, "duration": 90, "song": {"artist": "Known", "title": "Opener"}},
-                        {"played_at": 1781935223, "song": {"artist": "First", "title": "Inside Grace"}},
-                        {"played_at": 1781935283, "song": {"artist": "Second", "title": "Normal Offset"}},
+                        {
+                            "played_at": 1781935180,
+                            "duration": 90,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "Known", "title": "Opener"},
+                        },
+                        {
+                            "played_at": 1781935223,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "First", "title": "Inside Grace"},
+                        },
+                        {
+                            "played_at": 1781935283,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "Second", "title": "Normal Offset"},
+                        },
                     ]
                 }
             )
@@ -218,6 +232,97 @@ class AzuraCastHistoryTest(unittest.TestCase):
             "Second - Normal Offset",
         ])
 
+    def test_generate_tracklist_excludes_fallback_overlap_for_live_dj_run(self):
+        self.config_store.save_config(
+            {
+                "enabled": True,
+                "base_url": "https://azuracast.example",
+                "station_shortcode": "storm_surge",
+            }
+        )
+        run = self.state_store.mark_stream_start(
+            session_id="session-fallback",
+            started_at="2026-06-26T07:26:56+00:00",
+            station="Storm Surge",
+            streamer="SeaCapn",
+        )
+        run = self.state_store.mark_stream_end(
+            run_id=run["run_id"],
+            ended_at="2026-06-26T07:36:44+00:00",
+        )
+        http_get = Mock(
+            return_value=FakeResponse(
+                payload={
+                    "song_history": [
+                        {
+                            "sh_id": 123,
+                            "played_at": 1782458105,
+                            "duration": 2580,
+                            "playlist": "Storm Surge",
+                            "streamer": "",
+                            "song": {"title": "stream 20260607-165830"},
+                        },
+                        {
+                            "sh_id": 124,
+                            "played_at": 1782458820,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "L-Side", "title": "No Stress (Original Mix)"},
+                        },
+                        {
+                            "sh_id": 125,
+                            "played_at": 1782458880,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "Mystic State", "title": "AGK (Original Mix)"},
+                        },
+                        {
+                            "sh_id": 126,
+                            "played_at": 1782458940,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "NC-17, Philth", "title": "Concrete (Original Mix)"},
+                        },
+                        {
+                            "sh_id": 127,
+                            "played_at": 1782459000,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "Paul T & Edward Oberon, MC Moose", "title": "Future Style (Original Mix)"},
+                        },
+                        {
+                            "sh_id": 128,
+                            "played_at": 1782459060,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "Philth", "title": "Ghost Sector (Original Mix)"},
+                        },
+                        {
+                            "sh_id": 129,
+                            "played_at": 1782459120,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "Sl8r", "title": "Times Change (Original Mix)"},
+                        },
+                        {
+                            "sh_id": 130,
+                            "played_at": 1782459180,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "Taxman", "title": "Who Wants It (Original Mix)"},
+                        },
+                        {
+                            "sh_id": 131,
+                            "played_at": 1782459240,
+                            "streamer": "SeaCapn",
+                            "song": {"artist": "The Sauce", "title": "Drippy Fresh (Genic Remix)"},
+                        },
+                    ]
+                }
+            )
+        )
+
+        result = generate_tracklist_for_run(run["run_id"], store=self.state_store, http_get=http_get)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["track_count_filtered"], 8)
+        self.assertNotIn("stream 20260607-165830", result["tracklist"])
+        self.assertNotIn("stream 20260607-165830", [track["display"] for track in result["tracks"]])
+        self.assertEqual(result["tracks"][0]["display"], "L-Side - No Stress (Original Mix)")
+
     def test_generate_tracklist_clamps_first_public_track_inside_startup_grace(self):
         self.config_store.save_config(
             {
@@ -229,6 +334,7 @@ class AzuraCastHistoryTest(unittest.TestCase):
         run = self.state_store.mark_stream_start(
             session_id="session-grace",
             started_at="2026-06-20T06:00:00+00:00",
+            streamer="SeaCapn",
         )
         run = self.state_store.mark_stream_end(run_id=run["run_id"], ended_at="2026-06-20T06:05:00+00:00")
         http_get = Mock(
