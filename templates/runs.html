@@ -82,6 +82,13 @@
                                     <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_run', run_id=row.run_id) }}">
                                         Export
                                     </a>
+                                    {% if row.can_retry %}
+                                        <form method="post" action="{{ url_for('retry_run', run_id=row.run_id) }}">
+                                            <button class="btn btn-outline-primary btn-sm" type="submit">
+                                                Retry
+                                            </button>
+                                        </form>
+                                    {% endif %}
                                     {% if row.can_cancel %}
                                         <form method="post" action="{{ url_for('cancel_run', run_id=row.run_id) }}">
                                             <button class="btn btn-outline-danger btn-sm" type="submit">

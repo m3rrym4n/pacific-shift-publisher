@@ -110,6 +110,27 @@ class RecentRunsViewModelTest(unittest.TestCase):
 
         self.assertFalse(rows["failed-terminal"]["can_cancel"])
         self.assertFalse(rows["skipped-terminal"]["can_cancel"])
+        self.assertFalse(rows["failed-terminal"]["can_retry"])
+        self.assertFalse(rows["skipped-terminal"]["can_retry"])
+
+    def test_successful_runs_do_not_allow_retry(self):
+        run = self.store.mark_stream_start(
+            session_id="success-run",
+            started_at="2026-06-25T22:00:00+00:00",
+        )
+        run = self.store.mark_stream_end(
+            run_id=run["run_id"],
+            ended_at="2026-06-25T23:00:00+00:00",
+        )
+        with self.store.connect() as connection:
+            connection.execute(
+                "UPDATE pipeline_runs SET overall_status = ? WHERE run_id = ?",
+                ("success", run["run_id"]),
+            )
+
+        row = build_recent_runs_view_model(self.store)["rows"][0]
+
+        self.assertFalse(row["can_retry"])
 
     def _set_updated_at(self, run_id, updated_at):
         with self.store.connect() as connection:
@@ -160,6 +181,7 @@ class RecentRunsRouteTest(unittest.TestCase):
                     "updated_at": "2026-06-24T11:02:00+00:00",
                     "step_summary": "1 Failed, 5 Pending",
                     "can_cancel": True,
+                    "can_retry": True,
                     "steps": [
                         {
                             "step_key": "acquire_tracklist",
@@ -184,6 +206,8 @@ class RecentRunsRouteTest(unittest.TestCase):
         self.assertIn("Tracklist acquisition failed.", body)
         self.assertIn('action="/runs/run-123456/cancel"', body)
         self.assertIn("Cancel Run", body)
+        self.assertIn('action="/runs/run-123456/retry"', body)
+        self.assertIn("Retry", body)
 
 
 if __name__ == "__main__":

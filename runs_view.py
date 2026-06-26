@@ -1,5 +1,6 @@
 from dashboard import STATUS_CLASSES, STATUS_TEXT, STEP_LABELS
 from pipeline_constants import PIPELINE_STEP_KEYS
+from pipeline_retry import can_retry_run
 from pipeline_state import can_cancel_run, get_pipeline_store
 
 
@@ -38,6 +39,7 @@ def _build_run_row(run):
         "step_summary": _step_summary_text(steps),
         "steps": steps,
         "can_cancel": can_cancel_run(run),
+        "can_retry": can_retry_run(run),
     }
 
 

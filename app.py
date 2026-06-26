@@ -23,6 +23,7 @@ from pipeline_run_snapshot import (
     load_snapshot_file,
     snapshot_filename,
 )
+from pipeline_retry import retry_pipeline_run
 from pipeline_state import get_pipeline_store
 from rss_source import RssSourceStore, refresh_rss_source
 from runs_view import build_recent_runs_view_model
@@ -181,6 +182,13 @@ def cancel_current_run():
 @app.route("/runs/<run_id>/cancel", methods=["POST"])
 def cancel_run(run_id):
     get_pipeline_store().cancel_run(run_id)
+    return redirect(url_for("runs"), code=303)
+
+
+@app.route("/runs/<run_id>/retry", methods=["POST"])
+def retry_run(run_id):
+    result = retry_pipeline_run(run_id, get_pipeline_store())
+    flash(result["message"], "success" if result.get("ok") else "warning")
     return redirect(url_for("runs"), code=303)
 
 
