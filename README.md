@@ -259,6 +259,28 @@ This helper prepares description content only. It does not fetch recordings, ass
 
 ---
 
+# AzuraCast Podcast RSS Source
+
+Publisher stores a configured AzuraCast podcast RSS source at `/settings/source`. This is the source issue #30 should use to locate the published AzuraCast podcast enclosure before acquiring audio for a Castopod draft.
+
+The source configuration is persisted in the Publisher state database and supports:
+
+```text
+source name
+RSS feed URL
+station/show identifier
+optional AzuraCast podcast ID or slug
+enabled/disabled state
+last refresh timestamp/status/error
+latest parsed item and enclosure metadata
+```
+
+Use the `/settings/source` page to save the feed URL and trigger a manual refresh. Refreshing fetches the configured RSS feed, parses item title, publication date, GUID/stable ID, enclosure URL, enclosure type, and enclosure length, then stores recent parsed items for later pipeline use. Refresh success/failure is logged as structured pipeline events under the `acquire_mp3` step with event names such as `rss_source.refresh_succeeded` and `rss_source.refresh_failed`.
+
+This source setup does not download MP3 files, call Castopod, perform AzuraCast API readiness checks, or create podcast drafts. Those behaviors remain future pipeline work.
+
+---
+
 # Live Pipeline Verification Logs
 
 The `/logs` page renders recent structured pipeline events in a single tail-style viewer for operator verification. It reads the same event store exposed by `GET /api/pipeline-events` and keeps that JSON API available.

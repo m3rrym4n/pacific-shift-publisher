@@ -120,6 +120,9 @@
                 <h2 class="card-title">Current Status</h2>
             </div>
             <div class="card-body">
+                <div class="mb-3">
+                    <a class="btn btn-outline-primary" href="{{ url_for('source_settings') }}">Configure Source RSS</a>
+                </div>
                 <dl class="row mb-0">
                     <dt class="col-6">Enabled</dt>
                     <dd class="col-6">{{ "Yes" if azuracast_config.enabled else "No" }}</dd>

@@ -1,0 +1,179 @@
+{% extends "layouts/base.html" %}
+
+{% macro source_value(name) -%}
+    {{ (rss_source_form.get(name) if rss_source_form is defined and rss_source_form else rss_source_config.as_dict().get(name)) or "" }}
+{%- endmacro %}
+
+{% block content %}
+<div class="row row-cards">
+    <div class="col-12 col-xl-8">
+        <form class="card" method="post" action="{{ url_for('save_source_settings') }}">
+            <div class="card-header">
+                <div>
+                    <h2 class="card-title mb-1">AzuraCast Podcast RSS Source</h2>
+                    <div class="text-secondary">
+                        Configure the podcast feed Publisher will refresh before future audio acquisition.
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if rss_source_saved %}
+                    <div class="alert alert-success" role="alert">RSS source settings saved.</div>
+                {% endif %}
+                {% if rss_source_errors %}
+                    <div class="alert alert-danger" role="alert">
+                        <div class="fw-bold">RSS source settings were not saved.</div>
+                        <ul class="mb-0">
+                            {% for error in rss_source_errors %}
+                                <li>{{ error }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endif %}
+                {% if rss_source_refresh_result %}
+                    {% set alert_class = "success" if rss_source_refresh_result.ok else ("warning" if rss_source_refresh_result.status == "skipped" else "danger") %}
+                    <div class="alert alert-{{ alert_class }}" role="alert">{{ rss_source_refresh_result.message }}</div>
+                {% endif %}
+
+                <div class="mb-3">
+                    <label class="form-check form-switch">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               name="enabled"
+                               value="1"
+                               {% if (rss_source_form is defined and rss_source_form and rss_source_form.get("enabled") == "1") or (not rss_source_form is defined and rss_source_config.enabled) %}checked{% endif %}>
+                        <span class="form-check-label">Enable RSS source</span>
+                    </label>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label" for="source_name">Source name</label>
+                        <input class="form-control"
+                               id="source_name"
+                               name="source_name"
+                               value="{{ source_value('source_name') }}"
+                               placeholder="Storm Surge AzuraCast Podcast">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="feed_url">RSS feed URL</label>
+                        <input class="form-control"
+                               id="feed_url"
+                               name="feed_url"
+                               type="url"
+                               value="{{ source_value('feed_url') }}"
+                               placeholder="https://azuracast.example.com/public/storm_surge/podcast">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="station_identifier">Station / show identifier</label>
+                        <input class="form-control"
+                               id="station_identifier"
+                               name="station_identifier"
+                               value="{{ source_value('station_identifier') }}"
+                               placeholder="storm_surge">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="podcast_identifier">AzuraCast podcast ID or slug</label>
+                        <input class="form-control"
+                               id="podcast_identifier"
+                               name="podcast_identifier"
+                               value="{{ source_value('podcast_identifier') }}"
+                               placeholder="storm-surge">
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer d-flex justify-content-between">
+                <a class="btn btn-outline-secondary" href="{{ url_for('settings') }}">Back to Settings</a>
+                <button class="btn btn-primary" type="submit">Save RSS Source</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="col-12 col-xl-4">
+        <div class="card mb-3">
+            <div class="card-header">
+                <h2 class="card-title">Refresh Status</h2>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-5">Enabled</dt>
+                    <dd class="col-7">{{ "Yes" if rss_source_config.enabled else "No" }}</dd>
+                    <dt class="col-5">Last refresh</dt>
+                    <dd class="col-7">{{ rss_source_config.last_refresh_at or "Not refreshed" }}</dd>
+                    <dt class="col-5">Status</dt>
+                    <dd class="col-7">{{ rss_source_config.last_refresh_status or "Not available" }}</dd>
+                    <dt class="col-5">Last error</dt>
+                    <dd class="col-7">{{ rss_source_config.last_error_message or "None" }}</dd>
+                </dl>
+            </div>
+            <div class="card-footer text-end">
+                <form method="post" action="{{ url_for('refresh_source_settings') }}">
+                    <button class="btn btn-outline-primary" type="submit">Refresh RSS Feed</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Latest Parsed Item</h2>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-5">Title</dt>
+                    <dd class="col-7">{{ rss_source_config.latest_item_title or "Not available" }}</dd>
+                    <dt class="col-5">Published</dt>
+                    <dd class="col-7">{{ rss_source_config.latest_item_pub_date or "Not available" }}</dd>
+                    <dt class="col-5">GUID</dt>
+                    <dd class="col-7 text-break">{{ rss_source_config.latest_item_guid or "Not available" }}</dd>
+                    <dt class="col-5">Enclosure</dt>
+                    <dd class="col-7 text-break">{{ rss_source_config.latest_enclosure_url or "Not available" }}</dd>
+                    <dt class="col-5">Type</dt>
+                    <dd class="col-7">{{ rss_source_config.latest_enclosure_type or "Not available" }}</dd>
+                    <dt class="col-5">Length</dt>
+                    <dd class="col-7">{{ rss_source_config.latest_enclosure_length or "Not available" }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Recent Parsed Items</h2>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-vcenter card-table">
+                    <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Published</th>
+                        <th>GUID</th>
+                        <th>Enclosure</th>
+                        <th>Type</th>
+                        <th>Length</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% if rss_source_items %}
+                        {% for item in rss_source_items %}
+                            <tr>
+                                <td>{{ item.title or "Untitled" }}</td>
+                                <td>{{ item.pub_date or "Not available" }}</td>
+                                <td class="text-break">{{ item.guid or item.item_id }}</td>
+                                <td class="text-break">{{ item.enclosure_url or "No enclosure" }}</td>
+                                <td>{{ item.enclosure_type or "Not available" }}</td>
+                                <td>{{ item.enclosure_length or "Not available" }}</td>
+                            </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="6" class="text-secondary">No RSS items parsed yet.</td>
+                        </tr>
+                    {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

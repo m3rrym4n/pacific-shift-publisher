@@ -17,6 +17,7 @@ from logs_view import build_logs_download, build_logs_view_model, logs_download_
 from navigation import get_navigation
 from pipeline_logging import get_pipeline_logger
 from pipeline_state import get_pipeline_store
+from rss_source import RssSourceStore, refresh_rss_source
 from runs_view import build_recent_runs_view_model
 from tracklist_detail import build_tracklist_detail_view_model
 
@@ -214,6 +215,57 @@ def save_azuracast_settings():
         azuracast_errors=errors,
         azuracast_saved=not errors,
     ), status_code
+
+
+@app.route("/settings/source")
+def source_settings():
+    store = RssSourceStore()
+    return render_template(
+        "source_settings.html",
+        page_title="Source",
+        page_description="Configured AzuraCast podcast RSS source for future audio acquisition.",
+        rss_source_config=store.get_config(),
+        rss_source_items=store.list_items(),
+    )
+
+
+@app.route("/settings/source", methods=["POST"])
+def save_source_settings():
+    store = RssSourceStore()
+    config, errors = store.save_config(
+        {
+            "source_name": request.form.get("source_name"),
+            "feed_url": request.form.get("feed_url"),
+            "station_identifier": request.form.get("station_identifier"),
+            "podcast_identifier": request.form.get("podcast_identifier"),
+            "enabled": request.form.get("enabled") == "1",
+        }
+    )
+    status_code = 400 if errors else 200
+    return render_template(
+        "source_settings.html",
+        page_title="Source",
+        page_description="Configured AzuraCast podcast RSS source for future audio acquisition.",
+        rss_source_config=config or store.get_config(),
+        rss_source_form=request.form,
+        rss_source_errors=errors,
+        rss_source_saved=not errors,
+        rss_source_items=store.list_items(),
+    ), status_code
+
+
+@app.route("/settings/source/refresh", methods=["POST"])
+def refresh_source_settings():
+    store = RssSourceStore()
+    result = refresh_rss_source(store=store)
+    return render_template(
+        "source_settings.html",
+        page_title="Source",
+        page_description="Configured AzuraCast podcast RSS source for future audio acquisition.",
+        rss_source_config=result["config"],
+        rss_source_items=store.list_items(),
+        rss_source_refresh_result=result,
+    )
 
 
 @app.route("/healthz")
