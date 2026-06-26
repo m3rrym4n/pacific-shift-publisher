@@ -1,5 +1,4 @@
 import os
-import re
 import tempfile
 
 import requests
@@ -12,6 +11,7 @@ from azuracast_webhook import (
     handle_azuracast_webhook,
     parse_azuracast_request,
 )
+from castopod_client import create_castopod_draft_episode, missing_castopod_config
 from dashboard import build_dashboard_view_model
 from logs_view import build_logs_download, build_logs_view_model, logs_download_filename
 from navigation import get_navigation
@@ -40,12 +40,6 @@ HEADERS = {
     "Host": PUBLIC_HOST,
     "X-Forwarded-Proto": "https"
 }
-
-
-def make_slug(title):
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-    return slug or "episode"
-
 
 def get_podcast_options():
     return [{"id": PODCAST_ID, "name": PODCAST_NAME}]
@@ -97,12 +91,13 @@ def validate_upload(form, files):
 
 
 def check_config():
-    config = {
-        "CASTOPOD_URL": CASTOPOD_URL,
-        "API_USER": API_USER,
-        "API_PASS": API_PASS,
-    }
-    return [name for name, value in config.items() if not value]
+    return missing_castopod_config(
+        {
+            "castopod_url": CASTOPOD_URL,
+            "api_user": API_USER,
+            "api_pass": API_PASS,
+        }
+    )
 
 
 @app.context_processor
@@ -351,47 +346,36 @@ def upload():
             temp_path = temp_file.name
             audio_file.save(temp_file)
 
-        with open(temp_path, "rb") as f:
-            files = {
-                "audio_file": (filename, f, "audio/mpeg")
-            }
-            data = {
+        draft_result = create_castopod_draft_episode(
+            audio_path=temp_path,
+            filename=filename,
+            title=title,
+            description=description,
+            podcast_id=podcast_id,
+            http_post=requests.post,
+            config={
+                "castopod_url": CASTOPOD_URL,
+                "api_user": API_USER,
+                "api_pass": API_PASS,
+                "public_host": PUBLIC_HOST,
+                "podcast_id": PODCAST_ID,
                 "created_by": CREATED_BY,
                 "updated_by": UPDATED_BY,
-                "podcast_id": podcast_id,
-                "title": title,
-                "slug": make_slug(title),
-                "description": description,
-                "type": "full"
-            }
-            try:
-                response = requests.post(
-                    f"{CASTOPOD_URL}/api/rest/v1/episodes",
-                    auth=(API_USER, API_PASS),
-                    headers=HEADERS,
-                    files=files,
-                    data=data,
-                    timeout=REQUEST_TIMEOUT
-                )
-            except requests.RequestException as exc:
-                return render_upload_template(
-                    error="Castopod upload request failed.",
-                    detail=str(exc),
-                    form=request.form,
-                ), 502
+                "request_timeout": REQUEST_TIMEOUT,
+            },
+        )
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
 
-    if response.status_code not in (200, 201):
+    if not draft_result["ok"]:
         return render_upload_template(
-            error="Castopod rejected the episode upload.",
-            detail=response.text,
+            error=draft_result["error"],
+            detail=draft_result.get("detail"),
             form=request.form,
-        ), response.status_code
+        ), draft_result.get("status_code") or 502
 
-    episode = response.json()
-    episode_id = episode["id"]
+    episode_id = draft_result["episode_id"]
 
     if save_as_draft:
         return render_upload_template(
