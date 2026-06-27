@@ -171,7 +171,7 @@ def acquire_broadcast_audio_for_run(
 
         details.update(_broadcast_details(broadcast))
         recording = broadcast.get("recording")
-        if not isinstance(recording, dict):
+        if recording is None:
             _emit(
                 event_store,
                 run,
@@ -181,6 +181,17 @@ def acquire_broadcast_audio_for_run(
                 details,
             )
             return {"ok": False, "waiting": True, "details": details}
+        if not isinstance(recording, dict):
+            error = "AzuraCast broadcast recording data was invalid."
+            _emit(
+                event_store,
+                run,
+                "azuracast_transcode_ready",
+                "failed",
+                error,
+                details,
+            )
+            return {"ok": False, "error": error, "details": details}
 
         download_url = recording.get("downloadUrl")
         if not download_url:
@@ -291,17 +302,22 @@ def find_matching_broadcast(run, http_get, config, api_key=None):
 
 
 def fetch_broadcast(broadcast_id, *, http_get, config, api_key):
-    station_id = quote(str(config.station_id), safe="")
-    streamer_id = quote(str(config.streamer_id), safe="")
-    broadcast_id = quote(str(broadcast_id), safe="")
-    url = (
-        f"{config.base_url.rstrip('/')}/api/station/{station_id}"
-        f"/streamer/{streamer_id}/broadcast/{broadcast_id}"
+    payload = _get_json(
+        resolve_broadcasts_url(config),
+        http_get=http_get,
+        api_key=api_key,
     )
-    payload = _get_json(url, http_get=http_get, api_key=api_key)
-    if not isinstance(payload, dict):
-        raise PipelineMp3Error("AzuraCast broadcast API returned an unexpected response.")
-    return payload
+    broadcast = next(
+        (
+            item
+            for item in normalize_broadcast_list(payload)
+            if str(item.get("id")) == str(broadcast_id)
+        ),
+        None,
+    )
+    if broadcast is None:
+        raise PipelineMp3Error("Stored AzuraCast broadcast was not found.")
+    return broadcast
 
 
 def resolve_broadcasts_url(config):
@@ -446,7 +462,7 @@ def _broadcast_details(broadcast):
         "broadcast_id": broadcast.get("id"),
         "broadcast_started_at": broadcast.get("timestampStart"),
         "broadcast_ended_at": broadcast.get("timestampEnd"),
-        "recording_ready": isinstance(recording, dict),
+        "recording_ready": recording is not None,
         "recording_path": recording.get("path") if isinstance(recording, dict) else None,
         "recording_size": recording.get("size") if isinstance(recording, dict) else None,
     }

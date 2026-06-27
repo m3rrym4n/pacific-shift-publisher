@@ -119,9 +119,13 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertIn("azuracast_broadcast_match_succeeded", event_names)
         self.assertIn("azuracast_transcode_waiting", event_names)
 
-    def test_existing_broadcast_reference_fetches_singular_endpoint(self):
-        self.store.set_recording_reference(self.run["run_id"], "broadcast-1")
-        http_get = Mock(return_value=FakeResponse(payload=self._broadcast("broadcast-1")))
+    def test_existing_broadcast_reference_filters_broadcast_list(self):
+        self.store.set_recording_reference(self.run["run_id"], "1")
+        http_get = Mock(
+            return_value=FakeResponse(
+                payload=[self._broadcast("other"), self._broadcast(1)]
+            )
+        )
 
         updated = acquire_mp3_for_run(
             self.run["run_id"], self.store, http_get=http_get, http_post=Mock(), event_store=self.events
@@ -130,7 +134,30 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertEqual(self._step(updated, "acquire_mp3")["status"], "waiting_transcode")
         self.assertEqual(
             http_get.call_args.args[0],
-            "https://azuracast.example/api/station/1/streamer/7/broadcast/broadcast-1",
+            "https://azuracast.example/api/station/1/streamer/7/broadcasts",
+        )
+        self.assertNotIn("/broadcast/1", http_get.call_args.args[0])
+
+    def test_missing_stored_broadcast_fails_without_single_broadcast_request(self):
+        self.store.set_recording_reference(self.run["run_id"], "missing")
+        http_get = Mock(
+            return_value=FakeResponse(payload=[self._broadcast("other")])
+        )
+
+        updated = acquire_mp3_for_run(
+            self.run["run_id"],
+            self.store,
+            http_get=http_get,
+            http_post=Mock(),
+            event_store=self.events,
+        )
+
+        step = self._step(updated, "acquire_mp3")
+        self.assertEqual(step["status"], "failed")
+        self.assertIn("Stored AzuraCast broadcast was not found", step["message"])
+        self.assertEqual(
+            http_get.call_args.args[0],
+            "https://azuracast.example/api/station/1/streamer/7/broadcasts",
         )
 
     def test_ready_recording_downloads_directly_and_creates_draft(self):
