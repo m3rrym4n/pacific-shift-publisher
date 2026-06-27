@@ -304,14 +304,22 @@ null `recording` value places `acquire_mp3` in `waiting_transcode`; a recording
 object with `downloadUrl` is downloaded directly with the configured AzuraCast
 API key, validated, and passed to the existing Castopod draft helper.
 
-Run one persistent-state sync cycle with:
+Start the long-running transcode sync process with:
 
 ```bash
 python -m pipeline_transcode_sync
 ```
 
-Deployment scheduling should invoke this command every five minutes. The task
-does not create threads or keep in-memory polling state.
+The process reads `transcode_poll_interval_minutes` from AzuraCast Settings once
+at startup, runs a sync immediately, and repeats at that interval. Restart it to
+apply an interval change. Run one cycle for testing or maintenance with:
+
+```bash
+python -m pipeline_transcode_sync --once
+```
+
+The process does not create background threads; persistent run state remains in
+SQLite across restarts.
 
 ---
 

@@ -1,10 +1,18 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from pipeline_state import PipelineStateStore
-from pipeline_transcode_sync import sync_waiting_transcodes
+from pipeline_transcode_sync import (
+    main,
+    run_transcode_scheduler,
+    sync_waiting_transcodes,
+)
+
+
+class SchedulerStopped(Exception):
+    pass
 
 
 class PipelineTranscodeSyncTest(unittest.TestCase):
@@ -39,6 +47,84 @@ class PipelineTranscodeSyncTest(unittest.TestCase):
 
         self.assertEqual(results[0]["status"], "waiting_transcode")
         self.assertEqual(self.store.get_run(waiting["run_id"])["recording_reference"], "broadcast-1")
+
+    def test_continuous_scheduler_reads_config_and_repeats_at_interval(self):
+        config_loader = Mock(
+            return_value=type("Config", (), {"transcode_poll_interval_minutes": 2})()
+        )
+        sync_func = Mock(side_effect=[[], []])
+        sleep_func = Mock(side_effect=[None, SchedulerStopped()])
+        output_func = Mock()
+
+        with self.assertRaises(SchedulerStopped):
+            run_transcode_scheduler(
+                config_loader=config_loader,
+                sync_func=sync_func,
+                sleep_func=sleep_func,
+                output_func=output_func,
+            )
+
+        config_loader.assert_called_once_with()
+        self.assertEqual(sync_func.call_count, 2)
+        self.assertEqual(sleep_func.call_args_list[0].args, (120,))
+        self.assertEqual(sleep_func.call_args_list[1].args, (120,))
+        self.assertEqual(
+            output_func.call_args_list[0].args[0],
+            "Transcode sync running every 2 minutes (from AzuraCast settings)",
+        )
+
+    def test_once_runs_single_cycle_without_sleeping(self):
+        sync_func = Mock(return_value=[])
+        sleep_func = Mock()
+
+        result = run_transcode_scheduler(
+            once=True,
+            config_loader=lambda: type(
+                "Config", (), {"transcode_poll_interval_minutes": 7}
+            )(),
+            sync_func=sync_func,
+            sleep_func=sleep_func,
+            output_func=Mock(),
+        )
+
+        self.assertEqual(result, [])
+        sync_func.assert_called_once_with()
+        sleep_func.assert_not_called()
+
+    def test_invalid_or_unreadable_config_falls_back_to_five_minutes(self):
+        output_func = Mock()
+
+        run_transcode_scheduler(
+            once=True,
+            config_loader=lambda: type(
+                "Config", (), {"transcode_poll_interval_minutes": "invalid"}
+            )(),
+            sync_func=lambda: [],
+            output_func=output_func,
+        )
+
+        self.assertEqual(
+            output_func.call_args_list[0].args[0],
+            "Transcode sync running every 5 minutes (from AzuraCast settings)",
+        )
+
+        output_func.reset_mock()
+        run_transcode_scheduler(
+            once=True,
+            config_loader=Mock(side_effect=RuntimeError("database unavailable")),
+            sync_func=lambda: [],
+            output_func=output_func,
+        )
+        self.assertEqual(
+            output_func.call_args_list[0].args[0],
+            "Transcode sync running every 5 minutes (from AzuraCast settings)",
+        )
+
+    def test_main_once_flag_exits_after_single_cycle(self):
+        with patch("pipeline_transcode_sync.run_transcode_scheduler") as runner:
+            main(["--once"])
+
+        runner.assert_called_once_with(once=True)
 
     def _completed_run(self, session_id):
         run = self.store.mark_stream_start(
