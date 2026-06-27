@@ -10,7 +10,11 @@ Pacific Shift Publisher bypasses this limitation by communicating directly with 
 
 # Screenshot
 
-<img width="513" height="527" alt="image" src="https://github.com/user-attachments/assets/942dab7b-cd75-4e61-837d-13b64a5adc7e" />
+<img width="1233" height="626" alt="image" src="https://github.com/user-attachments/assets/ea181662-255d-45d5-a8bc-04d9809f1cbf" />
+
+<img width="1307" height="811" alt="image" src="https://github.com/user-attachments/assets/79bc1cc5-b359-407b-90f1-8e8076c6e5ca" />
+
+<img width="663" height="768" alt="image" src="https://github.com/user-attachments/assets/e1d21ea3-f114-4735-ad23-61ccd9e53c08" />
 
 
 ---
@@ -104,6 +108,7 @@ Upload an MP3 file, enter episode metadata, and publish directly to Castopod.
 * Docker
 * Docker Compose
 * Castopod REST API
+* Azuracast REST API
 
 ---
 
