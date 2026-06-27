@@ -110,17 +110,22 @@ class BroadcastSelectionTest(unittest.TestCase):
             calls.append("mp3")
             return store.update_step_status(run_id, "acquire_mp3", "success")
 
+        def assemble_runner(run_id, store):
+            calls.append("assemble")
+            return store.update_step_status(run_id, "assemble_episode", "success")
+
         result = select_broadcast_for_pipeline(
             2,
             store=self.store,
             http_get=Mock(return_value=FakeResponse([self._broadcast(2)])),
             tracklist_runner=tracklist_runner,
             mp3_runner=mp3_runner,
+            assemble_runner=assemble_runner,
         )
 
         run = result["run"]
         self.assertTrue(result["created"])
-        self.assertEqual(calls, ["tracklist", "mp3"])
+        self.assertEqual(calls, ["tracklist", "mp3", "assemble"])
         self.assertEqual(run["broadcast_id"], "2")
         self.assertEqual(run["started_at"], "2026-06-25T22:00:00+00:00")
         self.assertEqual(run["ended_at"], "2026-06-25T23:00:00+00:00")

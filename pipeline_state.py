@@ -56,6 +56,7 @@ class PipelineStateStore:
                     session_id TEXT UNIQUE,
                     broadcast_id TEXT,
                     recording_reference TEXT,
+                    assembled_episode_payload TEXT,
                     tracklist_status TEXT,
                     castopod_episode_id TEXT,
                     castopod_episode_url TEXT,
@@ -86,6 +87,8 @@ class PipelineStateStore:
                 columns = {row["name"] for row in cursor.fetchall()}
             if "broadcast_id" not in columns:
                 connection.execute("ALTER TABLE pipeline_runs ADD COLUMN broadcast_id TEXT")
+            if "assembled_episode_payload" not in columns:
+                connection.execute("ALTER TABLE pipeline_runs ADD COLUMN assembled_episode_payload TEXT")
 
     def create_run(
         self,
@@ -110,10 +113,11 @@ class PipelineStateStore:
                 INSERT INTO pipeline_runs (
                     run_id, station, show_name, streamer, started_at, ended_at,
                     overall_status, current_step, session_id, broadcast_id, recording_reference,
+                    assembled_episode_payload,
                     tracklist_status, castopod_episode_id, castopod_episode_url,
                     error_summary, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
+                VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)
                 """,
                 (
                     run_id,
@@ -300,6 +304,22 @@ class PipelineStateStore:
                     ),
                 )
             connection.execute("COMMIT")
+        return self.get_run(run_id)
+
+    def set_assembled_episode_payload(self, run_id, payload):
+        self.initialize()
+        if not self.get_run(run_id):
+            raise ValueError(f"Unknown pipeline run: {run_id}")
+        serialized = json.dumps(payload, sort_keys=True)
+        with closing(self.connect()) as connection:
+            connection.execute(
+                """
+                UPDATE pipeline_runs
+                SET assembled_episode_payload = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (serialized, utc_now(), run_id),
+            )
         return self.get_run(run_id)
 
     def delete_run(self, run_id):
@@ -636,6 +656,9 @@ class PipelineStateStore:
             "session_id": run["session_id"],
             "broadcast_id": run["broadcast_id"],
             "recording_reference": run["recording_reference"],
+            "assembled_episode_payload": self._deserialize_json(
+                run["assembled_episode_payload"]
+            ),
             "tracklist_status": run["tracklist_status"],
             "castopod_episode_id": run["castopod_episode_id"],
             "castopod_episode_url": run["castopod_episode_url"],
@@ -693,6 +716,14 @@ class PipelineStateStore:
         if isinstance(error_details, (dict, list)):
             return json.dumps(error_details, sort_keys=True)
         return str(error_details)
+
+    def _deserialize_json(self, value):
+        if not value:
+            return None
+        try:
+            return json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return None
 
     def _event_details(self, error_details):
         if not error_details:

@@ -2,6 +2,7 @@ from datetime import timezone
 
 import requests
 
+from assemble_episode import assemble_episode_for_run
 from azuracast_config import (
     AzuraCastConfigStore,
     get_azuracast_api_key,
@@ -59,6 +60,7 @@ def select_broadcast_for_pipeline(
     event_store=None,
     tracklist_runner=None,
     mp3_runner=None,
+    assemble_runner=None,
 ):
     from pipeline_mp3 import acquire_mp3_for_run
 
@@ -115,6 +117,12 @@ def select_broadcast_for_pipeline(
     if _step_status(run, "acquire_tracklist") == "success":
         mp3_runner = mp3_runner or acquire_mp3_for_run
         run = mp3_runner(run["run_id"], store)
+    if (
+        _step_status(run, "acquire_mp3") == "success"
+        and _step_status(run, "acquire_tracklist") == "success"
+    ):
+        assemble_runner = assemble_runner or assemble_episode_for_run
+        run = assemble_runner(run["run_id"], store)
     return {"run": run, "created": created, "broadcast": broadcast}
 
 
