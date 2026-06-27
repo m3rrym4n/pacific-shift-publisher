@@ -16,6 +16,8 @@ Pacific Shift Publisher bypasses this limitation by communicating directly with 
 
 <img width="663" height="768" alt="image" src="https://github.com/user-attachments/assets/e1d21ea3-f114-4735-ad23-61ccd9e53c08" />
 
+<img width="1721" height="708" alt="image" src="https://github.com/user-attachments/assets/2af647a1-1b37-4d06-9df1-b57b0c475f00" />
+
 
 ---
 
