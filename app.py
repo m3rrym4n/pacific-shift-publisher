@@ -6,6 +6,7 @@ from flask import Flask, flash, jsonify, redirect, render_template, request, url
 from werkzeug.utils import secure_filename
 
 from azuracast_config import AzuraCastConfigStore
+from azuracast_connection import test_azuracast_connection
 from azuracast_webhook import (
     emit_webhook_diagnostics,
     handle_azuracast_webhook,
@@ -240,9 +241,11 @@ def save_azuracast_settings():
             "base_url": request.form.get("base_url"),
             "station_shortcode": request.form.get("station_shortcode"),
             "station_id": request.form.get("station_id"),
+            "streamer_id": request.form.get("streamer_id"),
             "station_name": request.form.get("station_name"),
             "nowplaying_url": request.form.get("nowplaying_url"),
             "podcast_feed_url": request.form.get("podcast_feed_url"),
+            "api_key": request.form.get("api_key"),
         }
     )
     status_code = 400 if errors else 200
@@ -255,6 +258,32 @@ def save_azuracast_settings():
         azuracast_errors=errors,
         azuracast_saved=not errors,
     ), status_code
+
+
+@app.route("/settings/azuracast/api-key/clear", methods=["POST"])
+def clear_azuracast_api_key():
+    store = AzuraCastConfigStore()
+    config = store.clear_api_key()
+    return render_template(
+        "settings.html",
+        page_title="Settings",
+        page_description="Publisher configuration for integration endpoints and future automation.",
+        azuracast_config=config,
+        azuracast_key_cleared=True,
+    )
+
+
+@app.route("/settings/azuracast/test", methods=["POST"])
+def test_azuracast_settings():
+    store = AzuraCastConfigStore()
+    result = test_azuracast_connection(store=store)
+    return render_template(
+        "settings.html",
+        page_title="Settings",
+        page_description="Publisher configuration for integration endpoints and future automation.",
+        azuracast_config=store.get_config(),
+        azuracast_test_result=result,
+    )
 
 
 @app.route("/settings/source")

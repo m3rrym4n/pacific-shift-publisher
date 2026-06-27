@@ -20,6 +20,16 @@
                 {% if azuracast_saved %}
                     <div class="alert alert-success" role="alert">AzuraCast settings saved.</div>
                 {% endif %}
+                {% if azuracast_key_cleared %}
+                    <div class="alert alert-success" role="alert">
+                        Saved AzuraCast API key cleared. An environment fallback may still be active.
+                    </div>
+                {% endif %}
+                {% if azuracast_test_result %}
+                    <div class="alert {{ 'alert-success' if azuracast_test_result.ok else 'alert-danger' }}" role="alert">
+                        {{ azuracast_test_result.message }}
+                    </div>
+                {% endif %}
                 {% if azuracast_errors %}
                     <div class="alert alert-danger" role="alert">
                         <div class="fw-bold">AzuraCast settings were not saved.</div>
@@ -52,7 +62,7 @@
                                placeholder="https://azuracast.example.com"
                                value="{{ field_value('base_url') }}">
                     </div>
-                    <div class="col-12 col-md-6">
+                    <div class="col-12 col-md-4">
                         <label class="form-label" for="station_shortcode">Station shortcode</label>
                         <input class="form-control"
                                id="station_shortcode"
@@ -60,7 +70,7 @@
                                placeholder="storm_surge"
                                value="{{ field_value('station_shortcode') }}">
                     </div>
-                    <div class="col-12 col-md-6">
+                    <div class="col-12 col-md-4">
                         <label class="form-label" for="station_id">Station ID</label>
                         <input class="form-control"
                                id="station_id"
@@ -68,6 +78,15 @@
                                inputmode="numeric"
                                placeholder="1"
                                value="{{ field_value('station_id') }}">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label" for="streamer_id">Streamer ID</label>
+                        <input class="form-control"
+                               id="streamer_id"
+                               name="streamer_id"
+                               inputmode="numeric"
+                               placeholder="1"
+                               value="{{ field_value('streamer_id') }}">
                     </div>
                     <div class="col-12">
                         <label class="form-label" for="station_name">Station display name</label>
@@ -97,19 +116,44 @@
                 </div>
 
                 <div class="hr-text">Secret</div>
-                <div class="d-flex align-items-center gap-2">
-                    <span class="text-secondary">API key</span>
-                    {% if azuracast_config.api_key_configured %}
-                        <span class="badge bg-green-lt">Configured</span>
-                    {% else %}
-                        <span class="badge bg-secondary-lt">Not configured</span>
-                    {% endif %}
+                <div class="row g-3 align-items-end">
+                    <div class="col-12 col-md-8">
+                        <label class="form-label" for="api_key">AzuraCast API key</label>
+                        <input class="form-control"
+                               id="api_key"
+                               name="api_key"
+                               type="password"
+                               autocomplete="new-password"
+                               placeholder="Enter a new API key to save or update">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="form-label">Configured status</div>
+                        {% if azuracast_config.api_key_configured %}
+                            <span class="badge bg-green-lt">Configured</span>
+                        {% else %}
+                            <span class="badge bg-secondary-lt">Not configured</span>
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="form-hint mt-2">
-                    The API key is read from <code>AZURACAST_API_KEY</code>. Publisher never displays the full token.
+                    A saved key takes precedence over <code>AZURACAST_API_KEY</code>. Publisher never displays the full token.
                 </div>
             </div>
-            <div class="card-footer text-end">
+            <div class="card-footer d-flex flex-wrap justify-content-end gap-2">
+                {% if azuracast_config.api_key_configured %}
+                    <button class="btn btn-outline-danger"
+                            type="submit"
+                            formnovalidate
+                            formaction="{{ url_for('clear_azuracast_api_key') }}">
+                        Clear API Key
+                    </button>
+                {% endif %}
+                <button class="btn btn-outline-primary"
+                        type="submit"
+                        formnovalidate
+                        formaction="{{ url_for('test_azuracast_settings') }}">
+                    Test Connection
+                </button>
                 <button class="btn btn-primary" type="submit">Save AzuraCast Settings</button>
             </div>
         </form>

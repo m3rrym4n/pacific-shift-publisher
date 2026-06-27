@@ -156,6 +156,7 @@ enabled
 base_url
 station_shortcode
 station_id
+streamer_id
 station_name
 nowplaying_url
 podcast_feed_url
@@ -163,7 +164,15 @@ last_successful_check_at
 last_check_message
 ```
 
-The AzuraCast API key is read from `AZURACAST_API_KEY`. The Settings UI only shows whether the key is configured; it never displays the full token.
+The Settings UI can save, update, clear, and test an app-managed AzuraCast API key. A saved key takes precedence over `AZURACAST_API_KEY`; the environment variable remains the fallback for admin-managed deployments. Publisher only displays configured/not configured status and never returns the full token in settings, logs, diagnostics, downloads, or run exports.
+
+Test Connection calls the configured streamer broadcasts endpoint:
+
+```text
+GET /api/station/{station_id}/streamer/{streamer_id}/broadcasts
+```
+
+`streamer_id` defaults to `1` and remains editable. App-managed credentials are stored in the Publisher SQLite state database, so access to that database should be restricted like other application credentials.
 
 Optional environment defaults:
 
@@ -172,13 +181,14 @@ AZURACAST_ENABLED
 AZURACAST_BASE_URL
 AZURACAST_STATION_SHORTCODE
 AZURACAST_STATION_ID
+AZURACAST_STREAMER_ID
 AZURACAST_STATION_NAME
 AZURACAST_NOWPLAYING_URL
 AZURACAST_PODCAST_FEED_URL
 AZURACAST_API_KEY
 ```
 
-This settings page does not call AzuraCast, test credentials, fetch track history, read RSS feeds, acquire audio, or create Castopod drafts.
+The Test Connection action only validates configured AzuraCast API access. It does not fetch track history, read RSS feeds, acquire audio, or create Castopod drafts.
 
 ---
 

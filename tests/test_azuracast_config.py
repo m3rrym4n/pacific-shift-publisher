@@ -5,8 +5,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import app
-from azuracast_config import AzuraCastConfigStore, get_azuracast_config
+from azuracast_config import (
+    AzuraCastConfigStore,
+    get_azuracast_api_key,
+    get_azuracast_config,
+)
 from pipeline_logging import StructuredPipelineLogger
+from pipeline_run_snapshot import export_run_snapshot
+from pipeline_state import PipelineStateStore
 
 
 class AzuraCastConfigTest(unittest.TestCase):
@@ -33,6 +39,7 @@ class AzuraCastConfigTest(unittest.TestCase):
 
         self.assertFalse(config.enabled)
         self.assertIsNone(config.base_url)
+        self.assertEqual(config.streamer_id, "1")
         self.assertFalse(config.api_key_configured)
 
     def test_helper_reads_environment_defaults_without_secret_value(self):
@@ -67,7 +74,11 @@ class AzuraCastConfigTest(unittest.TestCase):
         self.assertIn("AzuraCast", body)
         self.assertIn("AzuraCast base URL", body)
         self.assertIn("Station shortcode", body)
+        self.assertIn("Station ID", body)
+        self.assertIn("Streamer ID", body)
         self.assertIn("API key", body)
+        self.assertIn('name="api_key"', body)
+        self.assertIn("Test Connection", body)
         self.assertIn("Configured", body)
         self.assertNotIn("super-secret-token", body)
 
@@ -79,6 +90,7 @@ class AzuraCastConfigTest(unittest.TestCase):
                 "base_url": "http://192.168.1.68/",
                 "station_shortcode": "storm_surge",
                 "station_id": "1",
+                "streamer_id": "7",
                 "station_name": "Storm Surge",
                 "nowplaying_url": "http://192.168.1.68/api/nowplaying/storm_surge",
                 "podcast_feed_url": "http://192.168.1.68/public/storm_surge/podcast",
@@ -93,6 +105,7 @@ class AzuraCastConfigTest(unittest.TestCase):
         self.assertEqual(config.base_url, "http://192.168.1.68")
         self.assertEqual(config.station_shortcode, "storm_surge")
         self.assertEqual(config.station_id, "1")
+        self.assertEqual(config.streamer_id, "7")
         self.assertEqual(config.station_name, "Storm Surge")
         self.assertIn("AzuraCast settings saved.", response.get_data(as_text=True))
         self.assertIn('value="http://192.168.1.68"', reload_body)
@@ -106,6 +119,7 @@ class AzuraCastConfigTest(unittest.TestCase):
                 "base_url": "not-a-url",
                 "station_shortcode": "storm surge!",
                 "station_id": "abc",
+                "streamer_id": "invalid",
             },
         )
 
@@ -114,6 +128,7 @@ class AzuraCastConfigTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Base Url must start with http:// or https://.", body)
         self.assertIn("Station ID must be numeric.", body)
+        self.assertIn("Streamer ID must be numeric.", body)
         self.assertIn("Station shortcode may only contain", body)
 
     def test_manual_upload_still_renders_required_fields(self):
@@ -141,6 +156,80 @@ class AzuraCastConfigTest(unittest.TestCase):
 
         events = StructuredPipelineLogger(self.db_path).find_events()
         self.assertNotIn("super-secret-token", str(events))
+
+    def test_api_key_can_be_saved_updated_and_cleared_without_display(self):
+        first_response = self.client.post(
+            "/settings/azuracast",
+            data={
+                "base_url": "https://azuracast.example",
+                "station_id": "1",
+                "streamer_id": "1",
+                "api_key": "first-managed-secret",
+            },
+        )
+        first_body = first_response.get_data(as_text=True)
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(get_azuracast_api_key(self.store), "first-managed-secret")
+        self.assertTrue(self.store.get_config().api_key_configured)
+        self.assertNotIn("first-managed-secret", first_body)
+
+        self.client.post(
+            "/settings/azuracast",
+            data={
+                "base_url": "https://azuracast.example",
+                "station_id": "1",
+                "streamer_id": "4",
+                "api_key": "updated-managed-secret",
+            },
+        )
+        self.assertEqual(get_azuracast_api_key(self.store), "updated-managed-secret")
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AZURACAST_API_KEY", None)
+            clear_response = self.client.post("/settings/azuracast/api-key/clear")
+            self.assertIsNone(get_azuracast_api_key(self.store))
+            self.assertFalse(self.store.get_config().api_key_configured)
+
+        clear_body = clear_response.get_data(as_text=True)
+        self.assertIn("Saved AzuraCast API key cleared", clear_body)
+        self.assertNotIn("updated-managed-secret", clear_body)
+
+    def test_managed_api_key_precedes_environment_and_environment_remains_fallback(self):
+        self.store.save_config(
+            {
+                "base_url": "https://azuracast.example",
+                "station_id": "1",
+                "streamer_id": "1",
+                "api_key": "managed-secret",
+            }
+        )
+
+        with patch.dict(os.environ, {"AZURACAST_API_KEY": "environment-secret"}):
+            self.assertEqual(get_azuracast_api_key(self.store), "managed-secret")
+            self.store.clear_api_key()
+            self.assertEqual(get_azuracast_api_key(self.store), "environment-secret")
+
+    def test_saved_api_key_is_absent_from_logs_download_events_and_config_dict(self):
+        self.store.save_config(
+            {
+                "base_url": "https://azuracast.example",
+                "station_id": "1",
+                "streamer_id": "1",
+                "api_key": "never-render-this-secret",
+            }
+        )
+
+        settings_body = self.client.get("/settings").get_data(as_text=True)
+        logs_body = self.client.get("/logs/download?detail_mode=raw").get_data(as_text=True)
+        events_body = self.client.get("/api/pipeline-events").get_data(as_text=True)
+        config_dict = self.store.get_config().as_dict()
+        run_store = PipelineStateStore(self.db_path)
+        run = run_store.mark_stream_start(session_id="secret-export-check")
+        snapshot = export_run_snapshot(run["run_id"], run_store)
+
+        for rendered in (settings_body, logs_body, events_body, str(config_dict), str(snapshot)):
+            self.assertNotIn("never-render-this-secret", rendered)
 
 
 if __name__ == "__main__":

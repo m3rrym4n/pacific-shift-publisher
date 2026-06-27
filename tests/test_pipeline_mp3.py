@@ -202,6 +202,43 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertEqual(result["details"]["readiness_decision"], "not_ready")
         self.assertFalse(result["details"]["candidate_episodes"][0]["has_media"])
 
+    def test_readiness_prefers_settings_managed_api_key(self):
+        self.configure()
+        saved = self.config_store.get_config().as_dict()
+        saved["api_key"] = "managed-api-secret"
+        self.config_store.save_config(saved)
+        http_get = Mock(
+            return_value=FakeResponse(
+                payload={
+                    "episodes": [
+                        {
+                            "id": "draft",
+                            "is_published": False,
+                            "has_media": True,
+                            "podcast_id": PODCAST_ID,
+                        }
+                    ]
+                }
+            )
+        )
+
+        with patch.dict(os.environ, {"AZURACAST_API_KEY": "environment-secret"}):
+            wait_for_podcast_readiness(
+                self.run,
+                config=self.config_store.get_config(),
+                source_config=self.rss_store.get_config(),
+                http_get=http_get,
+                event_store=self.events,
+                timeout_seconds=0,
+                poll_interval_seconds=1,
+                sleep_func=lambda _: None,
+            )
+
+        self.assertEqual(
+            http_get.call_args.kwargs["headers"]["Authorization"],
+            "Bearer managed-api-secret",
+        )
+
     def test_readiness_accepts_scoped_episode_without_podcast_id(self):
         self.configure()
         http_get = Mock(

@@ -1,10 +1,9 @@
-import os
 from dataclasses import dataclass
 from urllib.parse import quote
 
 import requests
 
-from azuracast_config import get_azuracast_config
+from azuracast_config import get_azuracast_api_key, get_azuracast_config
 from pipeline_state import get_pipeline_store
 from tracklist import (
     append_tracklist_to_description,
@@ -54,7 +53,7 @@ def load_azuracast_history(config=None, http_get=None, timeout=DEFAULT_TIMEOUT_S
         )
 
     headers = {}
-    api_key = os.getenv("AZURACAST_API_KEY")
+    api_key = get_azuracast_api_key()
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 

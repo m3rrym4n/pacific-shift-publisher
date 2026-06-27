@@ -10,7 +10,7 @@ from urllib.parse import quote, urlparse
 
 import requests
 
-from azuracast_config import get_azuracast_config
+from azuracast_config import get_azuracast_api_key, get_azuracast_config
 from castopod_client import create_castopod_draft_episode
 from pipeline_logging import StructuredPipelineLogger
 from pipeline_state import utc_now
@@ -202,7 +202,7 @@ def wait_for_podcast_readiness(
         return {"ok": False, "skipped": True, "error": "AzuraCast base URL is not configured."}
     if not config.station_id:
         return {"ok": False, "skipped": True, "error": "AzuraCast station ID is not configured."}
-    api_key = os.getenv("AZURACAST_API_KEY")
+    api_key = get_azuracast_api_key()
     if not api_key:
         return {"ok": False, "error": "AZURACAST_API_KEY is not configured."}
 

@@ -18,6 +18,7 @@ class AzuraCastConfig:
     base_url: str | None = None
     station_shortcode: str | None = None
     station_id: str | None = None
+    streamer_id: str = "1"
     station_name: str | None = None
     nowplaying_url: str | None = None
     podcast_feed_url: str | None = None
@@ -31,6 +32,7 @@ class AzuraCastConfig:
             "base_url": self.base_url,
             "station_shortcode": self.station_shortcode,
             "station_id": self.station_id,
+            "streamer_id": self.streamer_id,
             "station_name": self.station_name,
             "nowplaying_url": self.nowplaying_url,
             "podcast_feed_url": self.podcast_feed_url,
@@ -62,16 +64,28 @@ class AzuraCastConfigStore:
                     base_url TEXT,
                     station_shortcode TEXT,
                     station_id TEXT,
+                    streamer_id TEXT NOT NULL DEFAULT '1',
                     station_name TEXT,
                     nowplaying_url TEXT,
                     podcast_feed_url TEXT,
                     last_successful_check_at TEXT,
                     last_check_message TEXT,
+                    api_key TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
             )
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(integration_settings)").fetchall()
+            }
+            if "streamer_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE integration_settings ADD COLUMN streamer_id TEXT NOT NULL DEFAULT '1'"
+                )
+            if "api_key" not in columns:
+                connection.execute("ALTER TABLE integration_settings ADD COLUMN api_key TEXT")
 
     def get_config(self):
         self.initialize()
@@ -99,19 +113,21 @@ class AzuraCastConfigStore:
             connection.execute(
                 """
                 INSERT INTO integration_settings (
-                    integration_key, enabled, base_url, station_shortcode, station_id,
+                    integration_key, enabled, base_url, station_shortcode, station_id, streamer_id,
                     station_name, nowplaying_url, podcast_feed_url,
-                    last_successful_check_at, last_check_message, created_at, updated_at
+                    last_successful_check_at, last_check_message, api_key, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
                 ON CONFLICT(integration_key) DO UPDATE SET
                     enabled = excluded.enabled,
                     base_url = excluded.base_url,
                     station_shortcode = excluded.station_shortcode,
                     station_id = excluded.station_id,
+                    streamer_id = excluded.streamer_id,
                     station_name = excluded.station_name,
                     nowplaying_url = excluded.nowplaying_url,
                     podcast_feed_url = excluded.podcast_feed_url,
+                    api_key = COALESCE(excluded.api_key, integration_settings.api_key),
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -120,19 +136,65 @@ class AzuraCastConfigStore:
                     normalized["base_url"],
                     normalized["station_shortcode"],
                     normalized["station_id"],
+                    normalized["streamer_id"],
                     normalized["station_name"],
                     normalized["nowplaying_url"],
                     normalized["podcast_feed_url"],
+                    clean_text(values.get("api_key")),
                     now,
                     now,
                 ),
             )
         return self.get_config(), []
 
+    def get_api_key(self):
+        self.initialize()
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "SELECT api_key FROM integration_settings WHERE integration_key = ?",
+                (AZURACAST_CONFIG_KEY,),
+            ).fetchone()
+        saved_key = clean_text(row["api_key"]) if row else None
+        return saved_key or clean_text(os.getenv("AZURACAST_API_KEY"))
+
+    def clear_api_key(self):
+        self.initialize()
+        with closing(self.connect()) as connection:
+            connection.execute(
+                "UPDATE integration_settings SET api_key = NULL, updated_at = ? WHERE integration_key = ?",
+                (utc_now(), AZURACAST_CONFIG_KEY),
+            )
+        return self.get_config()
+
+    def record_check_result(self, message, *, success=False):
+        self.initialize()
+        now = utc_now()
+        with closing(self.connect()) as connection:
+            result = connection.execute(
+                """
+                UPDATE integration_settings
+                SET last_successful_check_at = CASE WHEN ? THEN ? ELSE last_successful_check_at END,
+                    last_check_message = ?,
+                    updated_at = ?
+                WHERE integration_key = ?
+                """,
+                (1 if success else 0, now, message, now, AZURACAST_CONFIG_KEY),
+            )
+        if result.rowcount == 0:
+            config = config_from_environment()
+            self.save_config(config.as_dict())
+            return self.record_check_result(message, success=success)
+        return self.get_config()
+
 
 def get_azuracast_config(store=None):
     store = store or AzuraCastConfigStore()
     return store.get_config()
+
+
+def get_azuracast_api_key(store=None):
+    store = store or AzuraCastConfigStore()
+    return store.get_api_key()
 
 
 def validate_azuracast_config(values):
@@ -141,6 +203,7 @@ def validate_azuracast_config(values):
         "base_url": clean_text(values.get("base_url")),
         "station_shortcode": clean_text(values.get("station_shortcode")),
         "station_id": clean_text(values.get("station_id")),
+        "streamer_id": clean_text(values.get("streamer_id")) or "1",
         "station_name": clean_text(values.get("station_name")),
         "nowplaying_url": clean_text(values.get("nowplaying_url")),
         "podcast_feed_url": clean_text(values.get("podcast_feed_url")),
@@ -154,6 +217,9 @@ def validate_azuracast_config(values):
 
     if normalized["station_id"] and not normalized["station_id"].isdigit():
         errors.append("Station ID must be numeric.")
+
+    if not normalized["streamer_id"].isdigit():
+        errors.append("Streamer ID must be numeric.")
 
     if normalized["station_shortcode"] and not re.fullmatch(r"[A-Za-z0-9_-]+", normalized["station_shortcode"]):
         errors.append("Station shortcode may only contain letters, numbers, underscores, and hyphens.")
@@ -174,6 +240,7 @@ def config_from_environment():
         base_url=strip_trailing_slash(clean_text(os.getenv("AZURACAST_BASE_URL"))),
         station_shortcode=clean_text(os.getenv("AZURACAST_STATION_SHORTCODE")),
         station_id=clean_text(os.getenv("AZURACAST_STATION_ID")),
+        streamer_id=clean_text(os.getenv("AZURACAST_STREAMER_ID")) or "1",
         station_name=clean_text(os.getenv("AZURACAST_STATION_NAME")),
         nowplaying_url=clean_text(os.getenv("AZURACAST_NOWPLAYING_URL")),
         podcast_feed_url=clean_text(os.getenv("AZURACAST_PODCAST_FEED_URL")),
@@ -187,12 +254,13 @@ def config_from_row(row):
         base_url=row["base_url"],
         station_shortcode=row["station_shortcode"],
         station_id=row["station_id"],
+        streamer_id=row["streamer_id"] or "1",
         station_name=row["station_name"],
         nowplaying_url=row["nowplaying_url"],
         podcast_feed_url=row["podcast_feed_url"],
         last_successful_check_at=row["last_successful_check_at"],
         last_check_message=row["last_check_message"],
-        api_key_configured=bool(clean_text(os.getenv("AZURACAST_API_KEY"))),
+        api_key_configured=bool(clean_text(row["api_key"]) or clean_text(os.getenv("AZURACAST_API_KEY"))),
     )
 
 
