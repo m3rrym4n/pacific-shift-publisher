@@ -1,11 +1,21 @@
 {% extends "layouts/base.html" %}
 
 {% block content %}
-<div class="d-flex justify-content-end mb-3">
+<div class="d-flex flex-wrap justify-content-end gap-2 mb-3">
+    <button class="btn btn-outline-primary btn-sm" id="get-broadcasts" type="button">
+        Get Broadcasts
+    </button>
     <form class="d-flex align-items-center gap-2" method="post" action="{{ url_for('import_run') }}" enctype="multipart/form-data">
         <input class="form-control form-control-sm" type="file" name="snapshot_file" accept="application/json,.json" aria-label="Pipeline run snapshot JSON">
         <button class="btn btn-primary btn-sm" type="submit">Import Run</button>
     </form>
+</div>
+
+<div class="card mb-3 d-none" id="broadcast-selector" aria-live="polite">
+    <div class="card-header">
+        <h2 class="card-title">Ready AzuraCast Broadcasts</h2>
+    </div>
+    <div class="card-body" id="broadcast-selector-body"></div>
 </div>
 
 {% if not runs.has_runs %}
@@ -113,4 +123,70 @@
         </div>
     </div>
 {% endif %}
+
+<script>
+(() => {
+    const button = document.getElementById("get-broadcasts");
+    const panel = document.getElementById("broadcast-selector");
+    const body = document.getElementById("broadcast-selector-body");
+
+    const localTime = value => value ? new Date(value).toLocaleString() : "Not available";
+    const escapeHtml = value => String(value ?? "").replace(/[&<>'"]/g, character => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;"
+    })[character]);
+
+    async function loadBroadcasts() {
+        panel.classList.remove("d-none");
+        body.textContent = "Loading ready broadcasts...";
+        button.disabled = true;
+        try {
+            const response = await fetch("{{ url_for('broadcasts') }}");
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.message || "Unable to load broadcasts.");
+            if (!payload.length) {
+                body.textContent = "No ready broadcast recordings are available.";
+                return;
+            }
+            body.innerHTML = `<div class="table-responsive"><table class="table table-vcenter">
+                <thead><tr><th>Start</th><th>End</th><th>Duration</th><th>Size</th><th></th></tr></thead>
+                <tbody>${payload.map(item => `<tr>
+                    <td>${escapeHtml(localTime(item.started_at))}</td>
+                    <td>${escapeHtml(localTime(item.ended_at))}</td>
+                    <td>${escapeHtml(item.duration_minutes)} minutes</td>
+                    <td>${item.size_mb === null ? "Not available" : `${escapeHtml(item.size_mb)} MB`}</td>
+                    <td><button class="btn btn-primary btn-sm select-broadcast" data-broadcast-id="${escapeHtml(item.broadcast_id)}" type="button">Select</button></td>
+                </tr>`).join("")}</tbody></table></div>`;
+        } catch (error) {
+            body.textContent = error.message;
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    async function selectBroadcast(target) {
+        target.disabled = true;
+        target.textContent = "Processing...";
+        try {
+            const response = await fetch("{{ url_for('select_broadcast') }}", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({broadcast_id: target.dataset.broadcastId})
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.message || "Unable to select broadcast.");
+            window.location.reload();
+        } catch (error) {
+            body.insertAdjacentHTML("afterbegin", `<div class="alert alert-danger">${escapeHtml(error.message)}</div>`);
+            target.disabled = false;
+            target.textContent = "Select";
+        }
+    }
+
+    button.addEventListener("click", loadBroadcasts);
+    body.addEventListener("click", event => {
+        const target = event.target.closest(".select-broadcast");
+        if (target) selectBroadcast(target);
+    });
+})();
+</script>
 {% endblock %}

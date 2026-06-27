@@ -159,6 +159,7 @@ class PipelineStateStoreTest(unittest.TestCase):
                 "overall_status",
                 "current_step",
                 "session_id",
+                "broadcast_id",
                 "recording_reference",
                 "tracklist_status",
                 "castopod_episode_id",

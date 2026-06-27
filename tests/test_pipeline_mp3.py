@@ -190,6 +190,30 @@ class PipelineMp3Test(unittest.TestCase):
         self.assertEqual(http_get.call_args_list[1].kwargs["headers"], {"X-API-Key": "managed-secret"})
         self.assertNotIn("managed-secret", str(self.events.find_events(run_id=updated["run_id"])))
 
+    def test_confirmed_broadcast_download_url_bypasses_broadcast_matching(self):
+        self.store.assign_broadcast(
+            self.run["run_id"],
+            broadcast_id="confirmed-1",
+            started_at=self.run["started_at"],
+            ended_at=self.run["ended_at"],
+            recording_reference="https://azuracast.example/confirmed.mp3",
+        )
+        http_get = Mock(
+            return_value=FakeResponse(content=b"mp3-data", headers={"content-type": "audio/mpeg"})
+        )
+
+        with patch(
+            "pipeline_mp3.create_castopod_draft_from_asset",
+            return_value={"ok": True, "episode_id": "episode-1", "episode_url": None},
+        ):
+            updated = acquire_mp3_for_run(
+                self.run["run_id"], self.store, http_get=http_get, event_store=self.events
+            )
+
+        self.assertEqual(self._step(updated, "acquire_mp3")["status"], "success")
+        self.assertEqual(http_get.call_count, 1)
+        self.assertEqual(http_get.call_args.args[0], "https://azuracast.example/confirmed.mp3")
+
     def test_no_matching_broadcast_fails_clearly(self):
         http_get = Mock(
             return_value=FakeResponse(

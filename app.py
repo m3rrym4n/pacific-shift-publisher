@@ -12,6 +12,11 @@ from azuracast_webhook import (
     handle_azuracast_webhook,
     parse_azuracast_request,
 )
+from broadcast_selection import (
+    BroadcastSelectionError,
+    get_ready_broadcasts,
+    select_broadcast_for_pipeline,
+)
 from castopod_client import create_castopod_draft_episode, missing_castopod_config
 from dashboard import build_dashboard_view_model
 from logs_view import build_logs_download, build_logs_view_model, logs_download_filename
@@ -143,6 +148,39 @@ def runs():
         page_description="Recent pipeline automation attempts and step outcomes.",
         runs=build_recent_runs_view_model(),
     )
+
+
+@app.route("/api/broadcasts")
+def broadcasts():
+    try:
+        items = get_ready_broadcasts(store=get_pipeline_store())
+    except BroadcastSelectionError as exc:
+        return jsonify({"ok": False, "message": str(exc)}), exc.status_code
+    return jsonify(items), 200
+
+
+@app.route("/api/broadcasts/select", methods=["POST"])
+def select_broadcast():
+    payload = request.get_json(silent=True) or {}
+    broadcast_id = payload.get("broadcast_id")
+    if broadcast_id is None:
+        return jsonify({"ok": False, "message": "Broadcast ID is required."}), 400
+    try:
+        result = select_broadcast_for_pipeline(
+            broadcast_id,
+            store=get_pipeline_store(),
+        )
+    except BroadcastSelectionError as exc:
+        return jsonify({"ok": False, "message": str(exc)}), exc.status_code
+    run = result["run"]
+    return jsonify(
+        {
+            "ok": True,
+            "run_id": run["run_id"],
+            "created": result["created"],
+            "overall_status": run["overall_status"],
+        }
+    ), 200
 
 
 @app.route("/runs/<run_id>/export")

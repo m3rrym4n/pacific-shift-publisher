@@ -123,8 +123,17 @@ def acquire_broadcast_audio_for_run(
     temp_path = None
 
     try:
-        broadcast_id = run.get("recording_reference")
-        if broadcast_id:
+        recording_reference = run.get("recording_reference")
+        broadcast_id = run.get("broadcast_id")
+        if broadcast_id and _is_http_url(recording_reference):
+            broadcast = {
+                "id": broadcast_id,
+                "timestampStart": run.get("started_at"),
+                "timestampEnd": run.get("ended_at"),
+                "recording": {"downloadUrl": recording_reference},
+            }
+        elif recording_reference:
+            broadcast_id = recording_reference
             broadcast = fetch_broadcast(
                 broadcast_id,
                 http_get=http_get,
@@ -424,6 +433,10 @@ def parse_datetime(value):
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _is_http_url(value):
+    return str(value or "").startswith(("http://", "https://"))
 
 
 def _validate_broadcast_config(config, api_key):

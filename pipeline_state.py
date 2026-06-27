@@ -54,6 +54,7 @@ class PipelineStateStore:
                     overall_status TEXT NOT NULL,
                     current_step TEXT,
                     session_id TEXT UNIQUE,
+                    broadcast_id TEXT,
                     recording_reference TEXT,
                     tracklist_status TEXT,
                     castopod_episode_id TEXT,
@@ -81,6 +82,10 @@ class PipelineStateStore:
                 );
                 """
             )
+            with closing(connection.execute("PRAGMA table_info(pipeline_runs)")) as cursor:
+                columns = {row["name"] for row in cursor.fetchall()}
+            if "broadcast_id" not in columns:
+                connection.execute("ALTER TABLE pipeline_runs ADD COLUMN broadcast_id TEXT")
 
     def create_run(
         self,
@@ -89,6 +94,7 @@ class PipelineStateStore:
         streamer=None,
         session_id=None,
         recording_reference=None,
+        broadcast_id=None,
         run_id=None,
     ):
         from pipeline_logging import StructuredPipelineLogger
@@ -103,11 +109,11 @@ class PipelineStateStore:
                 """
                 INSERT INTO pipeline_runs (
                     run_id, station, show_name, streamer, started_at, ended_at,
-                    overall_status, current_step, session_id, recording_reference,
+                    overall_status, current_step, session_id, broadcast_id, recording_reference,
                     tracklist_status, castopod_episode_id, castopod_episode_url,
                     error_summary, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
+                VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
                 """,
                 (
                     run_id,
@@ -117,6 +123,7 @@ class PipelineStateStore:
                     "waiting",
                     "stream_start",
                     session_id,
+                    str(broadcast_id) if broadcast_id is not None else None,
                     recording_reference,
                     now,
                     now,
@@ -244,6 +251,55 @@ class PipelineStateStore:
                 """,
                 (str(recording_reference), utc_now(), run_id),
             )
+        return self.get_run(run_id)
+
+    def assign_broadcast(
+        self,
+        run_id,
+        *,
+        broadcast_id,
+        started_at,
+        ended_at,
+        recording_reference,
+        station=None,
+        streamer=None,
+    ):
+        self.initialize()
+        if not self.get_run(run_id):
+            raise ValueError(f"Unknown pipeline run: {run_id}")
+        now = utc_now()
+        with closing(self.connect()) as connection:
+            connection.execute("BEGIN")
+            connection.execute(
+                """
+                UPDATE pipeline_runs
+                SET broadcast_id = ?, started_at = ?, ended_at = ?,
+                    recording_reference = ?, station = COALESCE(?, station),
+                    show_name = COALESCE(show_name, ?), streamer = COALESCE(streamer, ?),
+                    overall_status = 'in_progress', current_step = 'stream_end',
+                    error_summary = NULL, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (
+                    str(broadcast_id), started_at, ended_at, recording_reference,
+                    station, station, streamer, now, run_id,
+                ),
+            )
+            for step_key, timestamp in (("stream_start", started_at), ("stream_end", ended_at)):
+                connection.execute(
+                    """
+                    UPDATE pipeline_steps
+                    SET status = 'success', started_at = COALESCE(started_at, ?),
+                        ended_at = ?, message = ?, error_details = NULL, updated_at = ?
+                    WHERE run_id = ? AND step_key = ?
+                    """,
+                    (
+                        timestamp, timestamp,
+                        "Confirmed from selected AzuraCast broadcast.",
+                        now, run_id, step_key,
+                    ),
+                )
+            connection.execute("COMMIT")
         return self.get_run(run_id)
 
     def delete_run(self, run_id):
@@ -578,6 +634,7 @@ class PipelineStateStore:
             "overall_status": run["overall_status"],
             "current_step": run["current_step"],
             "session_id": run["session_id"],
+            "broadcast_id": run["broadcast_id"],
             "recording_reference": run["recording_reference"],
             "tracklist_status": run["tracklist_status"],
             "castopod_episode_id": run["castopod_episode_id"],

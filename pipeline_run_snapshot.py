@@ -71,11 +71,11 @@ def import_run_snapshot(snapshot, store):
                 """
                 INSERT INTO pipeline_runs (
                     run_id, station, show_name, streamer, started_at, ended_at,
-                    overall_status, current_step, session_id, recording_reference,
+                    overall_status, current_step, session_id, broadcast_id, recording_reference,
                     tracklist_status, castopod_episode_id, castopod_episode_url,
                     error_summary, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -87,6 +87,7 @@ def import_run_snapshot(snapshot, store):
                     run.get("overall_status"),
                     run.get("current_step"),
                     run.get("session_id") or run_id,
+                    run.get("broadcast_id"),
                     run.get("recording_reference"),
                     run.get("tracklist_status"),
                     run.get("castopod_episode_id"),

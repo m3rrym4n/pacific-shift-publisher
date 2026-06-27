@@ -292,17 +292,22 @@ This source setup does not download MP3 files, call Castopod, perform AzuraCast 
 
 ## AzuraCast Streamer Broadcast Audio
 
-After a stream ends, Publisher matches the completed run window against:
+The Runs page provides a **Get Broadcasts** action backed by Publisher's
+`GET /api/broadcasts` endpoint. Publisher reads the configured AzuraCast
+Station ID and Streamer ID, requests:
 
 ```text
 GET /api/station/{station_id}/streamer/{streamer_id}/broadcasts
 ```
 
-Both broadcast start and end timestamps must be within 60 seconds of the run
-window. Publisher stores the matched broadcast ID in `recording_reference`. A
-null `recording` value places `acquire_mp3` in `waiting_transcode`; a recording
-object with `downloadUrl` is downloaded directly with the configured AzuraCast
-API key, validated, and passed to the existing Castopod draft helper.
+and displays only broadcasts with ready recording data. Selecting a broadcast
+creates a run or updates an overlapping incomplete run with the confirmed
+timestamps, broadcast ID, and recording download URL. Publisher then acquires
+the tracklist and, when that succeeds, downloads and validates the confirmed
+recording before passing it to the existing Castopod draft helper.
+
+The earlier automatic timestamp-matching and `waiting_transcode` path remains
+available during this transition.
 
 Start the long-running transcode sync process with:
 
