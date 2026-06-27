@@ -90,6 +90,42 @@ class RunControlRouteTest(unittest.TestCase):
         self.assertEqual(events[0]["status"], "skipped")
         self.assertIn("No open run", events[0]["message"])
 
+    def test_runs_page_shows_delete_action_for_each_run(self):
+        first = self.store.create_run(run_id="delete-first", session_id="delete-first")
+        second = self.store.create_run(run_id="delete-second", session_id="delete-second")
+
+        response = self.client.get("/runs")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(f'action="/runs/{first["run_id"]}/delete"', body)
+        self.assertIn(f'action="/runs/{second["run_id"]}/delete"', body)
+        self.assertIn("This cannot be undone.", body)
+
+    def test_delete_run_removes_selected_run_steps_and_events_only(self):
+        selected = self.store.create_run(run_id="delete-selected", session_id="delete-selected")
+        other = self.store.create_run(run_id="delete-other", session_id="delete-other")
+
+        response = self.client.post(f'/runs/{selected["run_id"]}/delete')
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["Location"], "/runs")
+        self.assertIsNone(self.store.get_run(selected["run_id"]))
+        self.assertIsNotNone(self.store.get_run(other["run_id"]))
+        self.assertEqual(self.events.find_events(run_id=selected["run_id"]), [])
+        with self.store.connect() as connection:
+            step_count = connection.execute(
+                "SELECT COUNT(*) FROM pipeline_steps WHERE run_id = ?",
+                (selected["run_id"],),
+            ).fetchone()[0]
+        self.assertEqual(step_count, 0)
+
+    def test_delete_unknown_run_is_safe(self):
+        response = self.client.post("/runs/not-found/delete", follow_redirects=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Pipeline run was not found.", response.get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()

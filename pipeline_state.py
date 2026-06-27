@@ -246,6 +246,30 @@ class PipelineStateStore:
             )
         return self.get_run(run_id)
 
+    def delete_run(self, run_id):
+        from pipeline_logging import StructuredPipelineLogger
+
+        self.initialize()
+        StructuredPipelineLogger(self.db_path).initialize()
+        with closing(self.connect()) as connection:
+            connection.execute("BEGIN")
+            try:
+                run = connection.execute(
+                    "SELECT run_id FROM pipeline_runs WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                if not run:
+                    connection.execute("ROLLBACK")
+                    return False
+                connection.execute("DELETE FROM pipeline_events WHERE run_id = ?", (run_id,))
+                connection.execute("DELETE FROM pipeline_steps WHERE run_id = ?", (run_id,))
+                connection.execute("DELETE FROM pipeline_runs WHERE run_id = ?", (run_id,))
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+        return True
+
     def find_active_run(self, station=None, streamer=None):
         self.initialize()
         clauses = ["ended_at IS NULL", "overall_status IN ('waiting', 'in_progress')"]

@@ -193,6 +193,16 @@ def retry_run(run_id):
     return redirect(url_for("runs"), code=303)
 
 
+@app.route("/runs/<run_id>/delete", methods=["POST"])
+def delete_run(run_id):
+    deleted = get_pipeline_store().delete_run(run_id)
+    if deleted:
+        flash(f"Deleted pipeline run {run_id[:8]}.", "success")
+    else:
+        flash("Pipeline run was not found.", "warning")
+    return redirect(url_for("runs"), code=303)
+
+
 @app.route("/runs/<run_id>/tracklist")
 def run_tracklist(run_id):
     view_model = build_tracklist_detail_view_model(run_id)

@@ -96,6 +96,13 @@
                                             </button>
                                         </form>
                                     {% endif %}
+                                    <form method="post"
+                                          action="{{ url_for('delete_run', run_id=row.run_id) }}"
+                                          onsubmit="return confirm('Delete this run and its stored events? This cannot be undone.');">
+                                        <button class="btn btn-outline-danger btn-sm" type="submit">
+                                            Delete
+                                        </button>
+                                    </form>
                                 </div>
                             </td>
                         </tr>
