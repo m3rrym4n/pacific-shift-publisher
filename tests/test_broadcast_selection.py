@@ -114,6 +114,10 @@ class BroadcastSelectionTest(unittest.TestCase):
             calls.append("assemble")
             return store.update_step_status(run_id, "assemble_episode", "success")
 
+        def post_runner(run_id, store):
+            calls.append("post")
+            return store.update_step_status(run_id, "post_castopod_draft", "success")
+
         result = select_broadcast_for_pipeline(
             2,
             store=self.store,
@@ -121,11 +125,12 @@ class BroadcastSelectionTest(unittest.TestCase):
             tracklist_runner=tracklist_runner,
             mp3_runner=mp3_runner,
             assemble_runner=assemble_runner,
+            post_runner=post_runner,
         )
 
         run = result["run"]
         self.assertTrue(result["created"])
-        self.assertEqual(calls, ["tracklist", "mp3", "assemble"])
+        self.assertEqual(calls, ["tracklist", "mp3", "assemble", "post"])
         self.assertEqual(run["broadcast_id"], "2")
         self.assertEqual(run["started_at"], "2026-06-25T22:00:00+00:00")
         self.assertEqual(run["ended_at"], "2026-06-25T23:00:00+00:00")

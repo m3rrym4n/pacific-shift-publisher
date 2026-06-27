@@ -104,16 +104,7 @@ def build_dashboard_view_model(store=None, event_store=None):
             ),
         },
         "cards": cards,
-        "draft": {
-            "available": bool(run["castopod_episode_id"] or run["castopod_episode_url"]),
-            "message": (
-                "Castopod draft created."
-                if run["castopod_episode_id"] or run["castopod_episode_url"]
-                else "Castopod draft not created yet."
-            ),
-            "episode_id": run["castopod_episode_id"],
-            "episode_url": run["castopod_episode_url"],
-        },
+        "draft": _draft_view(run, steps_by_key.get("post_castopod_draft")),
     }
 
 
@@ -126,6 +117,24 @@ def _empty_card(step_key):
         "status_class": STATUS_CLASSES["pending"],
         "message": "Waiting for pipeline activity.",
         "updated_at": None,
+    }
+
+
+def _draft_view(run, step):
+    available = bool(run["castopod_episode_id"] or run["castopod_episode_url"])
+    if available:
+        message = "Castopod draft created."
+    elif step and step.get("status") == "failed":
+        message = step.get("message") or "Castopod draft creation failed."
+    elif step and step.get("status") == "in_progress":
+        message = step.get("message") or "Creating Castopod draft."
+    else:
+        message = "Castopod draft not created yet."
+    return {
+        "available": available,
+        "message": message,
+        "episode_id": run["castopod_episode_id"],
+        "episode_url": run["castopod_episode_url"],
     }
 
 

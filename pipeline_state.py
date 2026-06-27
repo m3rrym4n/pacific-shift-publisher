@@ -322,6 +322,37 @@ class PipelineStateStore:
             )
         return self.get_run(run_id)
 
+    def set_castopod_draft(self, run_id, episode_id, episode_url=None):
+        self.initialize()
+        if not self.get_run(run_id):
+            raise ValueError(f"Unknown pipeline run: {run_id}")
+        with closing(self.connect()) as connection:
+            connection.execute(
+                """
+                UPDATE pipeline_runs
+                SET castopod_episode_id = ?, castopod_episode_url = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (str(episode_id), episode_url, utc_now(), run_id),
+            )
+        return self.get_run(run_id)
+
+    def mark_run_success(self, run_id):
+        self.initialize()
+        if not self.get_run(run_id):
+            raise ValueError(f"Unknown pipeline run: {run_id}")
+        with closing(self.connect()) as connection:
+            connection.execute(
+                """
+                UPDATE pipeline_runs
+                SET overall_status = 'success', current_step = 'post_castopod_draft',
+                    error_summary = NULL, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (utc_now(), run_id),
+            )
+        return self.get_run(run_id)
+
     def delete_run(self, run_id):
         from pipeline_logging import StructuredPipelineLogger
 

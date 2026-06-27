@@ -303,8 +303,9 @@ GET /api/station/{station_id}/streamer/{streamer_id}/broadcasts
 and displays only broadcasts with ready recording data. Selecting a broadcast
 creates a run or updates an overlapping incomplete run with the confirmed
 timestamps, broadcast ID, and recording download URL. Publisher then acquires
-the tracklist and, when that succeeds, downloads and validates the confirmed
-recording before passing it to the existing Castopod draft helper.
+and validates the recording, acquires the tracklist, assembles the episode
+payload, and posts the episode to Castopod as a draft through separate named
+pipeline steps.
 
 The earlier automatic timestamp-matching and `waiting_transcode` path remains
 available during this transition.

@@ -109,7 +109,7 @@ class PipelineMp3Test(unittest.TestCase):
         http_get = Mock(return_value=FakeResponse(payload=[self._broadcast("broadcast-1")]))
 
         updated = acquire_mp3_for_run(
-            self.run["run_id"], self.store, http_get=http_get, http_post=Mock(), event_store=self.events
+            self.run["run_id"], self.store, http_get=http_get, event_store=self.events
         )
 
         self.assertEqual(self._step(updated, "acquire_mp3")["status"], "waiting_transcode")
@@ -128,7 +128,7 @@ class PipelineMp3Test(unittest.TestCase):
         )
 
         updated = acquire_mp3_for_run(
-            self.run["run_id"], self.store, http_get=http_get, http_post=Mock(), event_store=self.events
+            self.run["run_id"], self.store, http_get=http_get, event_store=self.events
         )
 
         self.assertEqual(self._step(updated, "acquire_mp3")["status"], "waiting_transcode")
@@ -148,7 +148,6 @@ class PipelineMp3Test(unittest.TestCase):
             self.run["run_id"],
             self.store,
             http_get=http_get,
-            http_post=Mock(),
             event_store=self.events,
         )
 
@@ -160,7 +159,7 @@ class PipelineMp3Test(unittest.TestCase):
             "https://azuracast.example/api/station/1/streamer/7/broadcasts",
         )
 
-    def test_ready_recording_downloads_directly_and_creates_draft(self):
+    def test_ready_recording_downloads_and_validates_without_castopod(self):
         broadcast = self._broadcast(
             "broadcast-1",
             recording={
@@ -176,16 +175,18 @@ class PipelineMp3Test(unittest.TestCase):
             ]
         )
 
-        with patch(
-            "pipeline_mp3.create_castopod_draft_from_asset",
-            return_value={"ok": True, "episode_id": "episode-1", "episode_url": "https://castopod.example/e/1"},
-        ):
+        with patch("castopod_client.requests.post") as castopod_post:
             updated = acquire_mp3_for_run(
-                self.run["run_id"], self.store, http_get=http_get, event_store=self.events
+                self.run["run_id"],
+                self.store,
+                http_get=http_get,
+                event_store=self.events,
             )
 
         self.assertEqual(self._step(updated, "acquire_mp3")["status"], "success")
-        self.assertEqual(updated["castopod_episode_id"], "episode-1")
+        self.assertIsNone(updated["castopod_episode_id"])
+        self.assertIsNone(updated["castopod_episode_url"])
+        castopod_post.assert_not_called()
         self.assertEqual(http_get.call_args_list[1].args[0], broadcast["recording"]["downloadUrl"])
         self.assertEqual(http_get.call_args_list[1].kwargs["headers"], {"X-API-Key": "managed-secret"})
         self.assertNotIn("managed-secret", str(self.events.find_events(run_id=updated["run_id"])))
@@ -202,13 +203,9 @@ class PipelineMp3Test(unittest.TestCase):
             return_value=FakeResponse(content=b"mp3-data", headers={"content-type": "audio/mpeg"})
         )
 
-        with patch(
-            "pipeline_mp3.create_castopod_draft_from_asset",
-            return_value={"ok": True, "episode_id": "episode-1", "episode_url": None},
-        ):
-            updated = acquire_mp3_for_run(
-                self.run["run_id"], self.store, http_get=http_get, event_store=self.events
-            )
+        updated = acquire_mp3_for_run(
+            self.run["run_id"], self.store, http_get=http_get, event_store=self.events
+        )
 
         self.assertEqual(self._step(updated, "acquire_mp3")["status"], "success")
         self.assertEqual(http_get.call_count, 1)

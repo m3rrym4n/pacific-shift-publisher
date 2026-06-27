@@ -11,6 +11,7 @@ from azuracast_config import (
 from pipeline_logging import StructuredPipelineLogger
 from pipeline_mp3 import parse_datetime, resolve_broadcasts_url
 from pipeline_tracklist import acquire_tracklist_for_run
+from post_castopod_draft import post_castopod_draft_for_run
 
 
 API_TIMEOUT_SECONDS = 15
@@ -61,6 +62,7 @@ def select_broadcast_for_pipeline(
     tracklist_runner=None,
     mp3_runner=None,
     assemble_runner=None,
+    post_runner=None,
 ):
     from pipeline_mp3 import acquire_mp3_for_run
 
@@ -123,6 +125,9 @@ def select_broadcast_for_pipeline(
     ):
         assemble_runner = assemble_runner or assemble_episode_for_run
         run = assemble_runner(run["run_id"], store)
+    if _step_status(run, "assemble_episode") == "success":
+        post_runner = post_runner or post_castopod_draft_for_run
+        run = post_runner(run["run_id"], store)
     return {"run": run, "created": created, "broadcast": broadcast}
 
 

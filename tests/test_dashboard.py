@@ -89,6 +89,34 @@ class DashboardViewModelTest(unittest.TestCase):
         self.assertEqual(view_model["draft"]["episode_id"], "42")
         self.assertEqual(view_model["draft"]["episode_url"], "https://castopod.example/episodes/42")
 
+    def test_castopod_draft_panel_shows_step_failure(self):
+        run = self.store.create_run(session_id="draft-failure")
+        self.store.mark_step_failed(
+            run["run_id"],
+            "post_castopod_draft",
+            message="Castopod draft creation failed: HTTP 422.",
+        )
+
+        view_model = build_dashboard_view_model(self.store, self.events)
+
+        self.assertFalse(view_model["draft"]["available"])
+        self.assertIn("HTTP 422", view_model["draft"]["message"])
+
+    def test_post_castopod_draft_success_renders_on_dashboard(self):
+        run = self.store.create_run(session_id="draft-step-success")
+        self.store.update_step_status(
+            run["run_id"],
+            "post_castopod_draft",
+            "success",
+            message="Castopod draft created.",
+        )
+
+        view_model = build_dashboard_view_model(self.store, self.events)
+        card = self._card(view_model, "post_castopod_draft")
+
+        self.assertEqual(card["status_text"], "Success")
+        self.assertEqual(card["status_class"], "success")
+
     def test_acquired_tracklist_count_links_to_detail_route(self):
         run = self.store.create_run(run_id="tracklist-run", session_id="tracklist-run")
         self.store.update_step_status(

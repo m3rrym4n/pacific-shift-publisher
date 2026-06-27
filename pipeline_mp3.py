@@ -13,9 +13,7 @@ from azuracast_config import (
     get_azuracast_api_key,
     get_azuracast_config,
 )
-from castopod_client import create_castopod_draft_episode
 from pipeline_logging import StructuredPipelineLogger
-from pipeline_state import utc_now
 
 
 BROADCAST_MATCH_TOLERANCE_SECONDS = 60
@@ -39,7 +37,6 @@ def acquire_mp3_for_run(
     *,
     config=None,
     http_get=None,
-    http_post=None,
     event_store=None,
 ):
     run = store.get_run(run_id)
@@ -57,7 +54,6 @@ def acquire_mp3_for_run(
         config=config,
         api_key=get_azuracast_api_key(config_store),
         http_get=http_get,
-        http_post=http_post,
         event_store=event_store,
     )
 
@@ -71,12 +67,11 @@ def acquire_mp3_for_run(
             error_details=details,
         )
     if result.get("ok"):
-        _record_castopod_draft(store, run_id, result)
         return store.update_step_status(
             run_id,
             "acquire_mp3",
             "success",
-            message="AzuraCast broadcast audio acquired and Castopod draft created.",
+            message="AzuraCast broadcast audio downloaded and validated.",
             error_details=details,
         )
 
@@ -107,7 +102,6 @@ def acquire_broadcast_audio_for_run(
     config,
     api_key,
     http_get,
-    http_post,
     event_store,
 ):
     config_error = _validate_broadcast_config(config, api_key)
@@ -258,26 +252,7 @@ def acquire_broadcast_audio_for_run(
             }
         )
 
-        draft = create_castopod_draft_from_asset(
-            run,
-            asset,
-            http_post=http_post,
-            event_store=event_store,
-        )
-        if not draft["ok"]:
-            return {"ok": False, "error": draft["error"], "details": details}
-        details.update(
-            {
-                "castopod_episode_id": draft.get("episode_id"),
-                "castopod_episode_url": draft.get("episode_url"),
-            }
-        )
-        return {
-            "ok": True,
-            "details": details,
-            "castopod_episode_id": draft.get("episode_id"),
-            "castopod_episode_url": draft.get("episode_url"),
-        }
+        return {"ok": True, "details": details}
     except PipelineMp3Error as exc:
         return {"ok": False, "error": str(exc), "details": details}
     finally:
@@ -350,8 +325,16 @@ def normalize_broadcast_list(payload):
     return [payload] if payload.get("id") is not None else []
 
 
-def download_audio_asset(enclosure_url, *, http_get, event_store, run, headers=None):
-    _emit(event_store, run, "acquire_mp3.download_started", "in_progress", "Downloading RSS enclosure audio.", {"enclosure_url": enclosure_url})
+def download_audio_asset(
+    enclosure_url,
+    *,
+    http_get,
+    event_store,
+    run,
+    headers=None,
+    step_key="acquire_mp3",
+):
+    _emit(event_store, run, "acquire_mp3.download_started", "in_progress", "Downloading RSS enclosure audio.", {"enclosure_url": enclosure_url}, step_key=step_key)
     try:
         response = http_get(
             enclosure_url,
@@ -362,7 +345,7 @@ def download_audio_asset(enclosure_url, *, http_get, event_store, run, headers=N
         response.raise_for_status()
     except requests.RequestException as exc:
         message = f"RSS enclosure download failed: {exc.__class__.__name__}"
-        _emit(event_store, run, "acquire_mp3.download_failed", "failed", message, {"enclosure_url": enclosure_url})
+        _emit(event_store, run, "acquire_mp3.download_failed", "failed", message, {"enclosure_url": enclosure_url}, step_key=step_key)
         raise PipelineMp3Error(message) from exc
 
     suffix = ".mp3" if ".mp3" in enclosure_url.lower() else ".bin"
@@ -380,40 +363,22 @@ def download_audio_asset(enclosure_url, *, http_get, event_store, run, headers=N
         content_type=content_type,
         enclosure_url=enclosure_url,
     )
-    _emit(event_store, run, "acquire_mp3.download_succeeded", "success", "RSS enclosure audio downloaded.", {"audio_size_bytes": asset.size_bytes, "audio_content_type": content_type})
-    validate_audio_asset(asset, event_store=event_store, run=run)
+    _emit(event_store, run, "acquire_mp3.download_succeeded", "success", "RSS enclosure audio downloaded.", {"audio_size_bytes": asset.size_bytes, "audio_content_type": content_type}, step_key=step_key)
+    validate_audio_asset(asset, event_store=event_store, run=run, step_key=step_key)
     return asset
 
 
-def validate_audio_asset(asset, *, event_store, run):
+def validate_audio_asset(asset, *, event_store, run, step_key="acquire_mp3"):
     if not os.path.exists(asset.path) or asset.size_bytes <= 0:
         message = "Downloaded audio asset is empty."
-        _emit(event_store, run, "acquire_mp3.validation_failed", "failed", message, {"audio_size_bytes": asset.size_bytes})
+        _emit(event_store, run, "acquire_mp3.validation_failed", "failed", message, {"audio_size_bytes": asset.size_bytes}, step_key=step_key)
         raise PipelineMp3Error(message)
     content_type = str(asset.content_type or "").split(";", 1)[0].lower()
     if content_type and content_type not in MP3_CONTENT_TYPES and not asset.filename.lower().endswith(".mp3"):
         message = "Downloaded audio asset does not look like an MP3."
-        _emit(event_store, run, "acquire_mp3.validation_failed", "failed", message, {"audio_content_type": asset.content_type, "filename": asset.filename})
+        _emit(event_store, run, "acquire_mp3.validation_failed", "failed", message, {"audio_content_type": asset.content_type, "filename": asset.filename}, step_key=step_key)
         raise PipelineMp3Error(message)
-    _emit(event_store, run, "acquire_mp3.validation_succeeded", "success", "Downloaded audio asset validated.", {"audio_size_bytes": asset.size_bytes, "audio_content_type": asset.content_type})
-
-
-def create_castopod_draft_from_asset(run, asset, *, http_post, event_store):
-    title = run.get("show_name") or run.get("station") or "AzuraCast Podcast Episode"
-    description = "Draft created from AzuraCast podcast RSS enclosure."
-    _emit(event_store, run, "castopod_draft.create_started", "in_progress", "Creating Castopod draft from acquired audio.", {"audio_filename": asset.filename})
-    result = create_castopod_draft_episode(
-        audio_path=asset.path,
-        filename=asset.filename,
-        title=title,
-        description=description,
-        http_post=http_post,
-    )
-    if result["ok"]:
-        _emit(event_store, run, "castopod_draft.create_succeeded", "success", "Castopod draft created from acquired audio.", {"castopod_episode_id": result.get("episode_id"), "castopod_episode_url": result.get("episode_url")})
-    else:
-        _emit(event_store, run, "castopod_draft.create_failed", "failed", result["error"], {"status_code": result.get("status_code")})
-    return result
+    _emit(event_store, run, "acquire_mp3.validation_succeeded", "success", "Downloaded audio asset validated.", {"audio_size_bytes": asset.size_bytes, "audio_content_type": asset.content_type}, step_key=step_key)
 
 
 def parse_datetime(value):
@@ -481,29 +446,11 @@ def _broadcast_details(broadcast):
     }
 
 
-def _record_castopod_draft(store, run_id, result):
-    run = store.get_run(run_id)
-    if not run:
-        return
-    now = utc_now()
-    with store.connect() as connection:
-        connection.execute(
-            """
-            UPDATE pipeline_runs
-            SET castopod_episode_id = COALESCE(?, castopod_episode_id),
-                castopod_episode_url = COALESCE(?, castopod_episode_url),
-                updated_at = ?
-            WHERE run_id = ?
-            """,
-            (result.get("castopod_episode_id"), result.get("castopod_episode_url"), now, run_id),
-        )
-
-
-def _emit(event_store, run, event_name, status, message, details=None):
+def _emit(event_store, run, event_name, status, message, details=None, step_key="acquire_mp3"):
     return event_store.emit(
         run_id=run["run_id"],
         session_id=run.get("session_id"),
-        step_key="acquire_mp3",
+        step_key=step_key,
         event_name=event_name,
         status=status,
         message=message,
