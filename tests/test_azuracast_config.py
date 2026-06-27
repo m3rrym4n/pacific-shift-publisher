@@ -40,6 +40,7 @@ class AzuraCastConfigTest(unittest.TestCase):
         self.assertFalse(config.enabled)
         self.assertIsNone(config.base_url)
         self.assertEqual(config.streamer_id, "1")
+        self.assertEqual(config.transcode_poll_interval_minutes, 5)
         self.assertFalse(config.api_key_configured)
 
     def test_helper_reads_environment_defaults_without_secret_value(self):
@@ -76,6 +77,11 @@ class AzuraCastConfigTest(unittest.TestCase):
         self.assertIn("Station shortcode", body)
         self.assertIn("Station ID", body)
         self.assertIn("Streamer ID", body)
+        self.assertIn("Transcode poll interval", body)
+        self.assertIn('name="transcode_poll_interval_minutes"', body)
+        self.assertIn('<option value="1"', body)
+        self.assertIn('<option value="5" selected>', body)
+        self.assertIn('<option value="30"', body)
         self.assertIn("API key", body)
         self.assertIn('name="api_key"', body)
         self.assertIn("Test Connection", body)
@@ -91,6 +97,7 @@ class AzuraCastConfigTest(unittest.TestCase):
                 "station_shortcode": "storm_surge",
                 "station_id": "1",
                 "streamer_id": "7",
+                "transcode_poll_interval_minutes": "12",
                 "station_name": "Storm Surge",
                 "nowplaying_url": "http://192.168.1.68/api/nowplaying/storm_surge",
                 "podcast_feed_url": "http://192.168.1.68/public/storm_surge/podcast",
@@ -106,6 +113,7 @@ class AzuraCastConfigTest(unittest.TestCase):
         self.assertEqual(config.station_shortcode, "storm_surge")
         self.assertEqual(config.station_id, "1")
         self.assertEqual(config.streamer_id, "7")
+        self.assertEqual(config.transcode_poll_interval_minutes, 12)
         self.assertEqual(config.station_name, "Storm Surge")
         self.assertIn("AzuraCast settings saved.", response.get_data(as_text=True))
         self.assertIn('value="http://192.168.1.68"', reload_body)
@@ -120,6 +128,7 @@ class AzuraCastConfigTest(unittest.TestCase):
                 "station_shortcode": "storm surge!",
                 "station_id": "abc",
                 "streamer_id": "invalid",
+                "transcode_poll_interval_minutes": "31",
             },
         )
 
@@ -129,6 +138,7 @@ class AzuraCastConfigTest(unittest.TestCase):
         self.assertIn("Base Url must start with http:// or https://.", body)
         self.assertIn("Station ID must be numeric.", body)
         self.assertIn("Streamer ID must be numeric.", body)
+        self.assertIn("Transcode poll interval must be between 1 and 30 minutes.", body)
         self.assertIn("Station shortcode may only contain", body)
 
     def test_manual_upload_still_renders_required_fields(self):

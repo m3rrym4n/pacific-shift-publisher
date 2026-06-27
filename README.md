@@ -157,6 +157,7 @@ base_url
 station_shortcode
 station_id
 streamer_id
+transcode_poll_interval_minutes
 station_name
 nowplaying_url
 podcast_feed_url
@@ -172,7 +173,7 @@ Test Connection calls the configured streamer broadcasts endpoint:
 GET /api/station/{station_id}/streamer/{streamer_id}/broadcasts
 ```
 
-`streamer_id` defaults to `1` and remains editable. App-managed credentials are stored in the Publisher SQLite state database, so access to that database should be restricted like other application credentials.
+`streamer_id` defaults to `1` and remains editable. The transcode poll interval defaults to 5 minutes and accepts values from 1 through 30 minutes. App-managed credentials are stored in the Publisher SQLite state database, so access to that database should be restricted like other application credentials.
 
 Optional environment defaults:
 

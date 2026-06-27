@@ -242,6 +242,9 @@ def save_azuracast_settings():
             "station_shortcode": request.form.get("station_shortcode"),
             "station_id": request.form.get("station_id"),
             "streamer_id": request.form.get("streamer_id"),
+            "transcode_poll_interval_minutes": request.form.get(
+                "transcode_poll_interval_minutes"
+            ),
             "station_name": request.form.get("station_name"),
             "nowplaying_url": request.form.get("nowplaying_url"),
             "podcast_feed_url": request.form.get("podcast_feed_url"),

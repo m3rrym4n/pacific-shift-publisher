@@ -19,6 +19,7 @@ class AzuraCastConfig:
     station_shortcode: str | None = None
     station_id: str | None = None
     streamer_id: str = "1"
+    transcode_poll_interval_minutes: int = 5
     station_name: str | None = None
     nowplaying_url: str | None = None
     podcast_feed_url: str | None = None
@@ -33,6 +34,7 @@ class AzuraCastConfig:
             "station_shortcode": self.station_shortcode,
             "station_id": self.station_id,
             "streamer_id": self.streamer_id,
+            "transcode_poll_interval_minutes": self.transcode_poll_interval_minutes,
             "station_name": self.station_name,
             "nowplaying_url": self.nowplaying_url,
             "podcast_feed_url": self.podcast_feed_url,
@@ -65,6 +67,7 @@ class AzuraCastConfigStore:
                     station_shortcode TEXT,
                     station_id TEXT,
                     streamer_id TEXT NOT NULL DEFAULT '1',
+                    transcode_poll_interval_minutes INTEGER NOT NULL DEFAULT 5,
                     station_name TEXT,
                     nowplaying_url TEXT,
                     podcast_feed_url TEXT,
@@ -86,6 +89,11 @@ class AzuraCastConfigStore:
                 )
             if "api_key" not in columns:
                 connection.execute("ALTER TABLE integration_settings ADD COLUMN api_key TEXT")
+            if "transcode_poll_interval_minutes" not in columns:
+                connection.execute(
+                    "ALTER TABLE integration_settings "
+                    "ADD COLUMN transcode_poll_interval_minutes INTEGER NOT NULL DEFAULT 5"
+                )
 
     def get_config(self):
         self.initialize()
@@ -114,16 +122,18 @@ class AzuraCastConfigStore:
                 """
                 INSERT INTO integration_settings (
                     integration_key, enabled, base_url, station_shortcode, station_id, streamer_id,
+                    transcode_poll_interval_minutes,
                     station_name, nowplaying_url, podcast_feed_url,
                     last_successful_check_at, last_check_message, api_key, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
                 ON CONFLICT(integration_key) DO UPDATE SET
                     enabled = excluded.enabled,
                     base_url = excluded.base_url,
                     station_shortcode = excluded.station_shortcode,
                     station_id = excluded.station_id,
                     streamer_id = excluded.streamer_id,
+                    transcode_poll_interval_minutes = excluded.transcode_poll_interval_minutes,
                     station_name = excluded.station_name,
                     nowplaying_url = excluded.nowplaying_url,
                     podcast_feed_url = excluded.podcast_feed_url,
@@ -137,6 +147,7 @@ class AzuraCastConfigStore:
                     normalized["station_shortcode"],
                     normalized["station_id"],
                     normalized["streamer_id"],
+                    normalized["transcode_poll_interval_minutes"],
                     normalized["station_name"],
                     normalized["nowplaying_url"],
                     normalized["podcast_feed_url"],
@@ -204,6 +215,10 @@ def validate_azuracast_config(values):
         "station_shortcode": clean_text(values.get("station_shortcode")),
         "station_id": clean_text(values.get("station_id")),
         "streamer_id": clean_text(values.get("streamer_id")) or "1",
+        "transcode_poll_interval_minutes": clean_text(
+            values.get("transcode_poll_interval_minutes")
+        )
+        or "5",
         "station_name": clean_text(values.get("station_name")),
         "nowplaying_url": clean_text(values.get("nowplaying_url")),
         "podcast_feed_url": clean_text(values.get("podcast_feed_url")),
@@ -220,6 +235,15 @@ def validate_azuracast_config(values):
 
     if not normalized["streamer_id"].isdigit():
         errors.append("Streamer ID must be numeric.")
+
+    try:
+        poll_interval = int(normalized["transcode_poll_interval_minutes"])
+    except ValueError:
+        errors.append("Transcode poll interval must be between 1 and 30 minutes.")
+        poll_interval = 5
+    if not 1 <= poll_interval <= 30:
+        errors.append("Transcode poll interval must be between 1 and 30 minutes.")
+    normalized["transcode_poll_interval_minutes"] = poll_interval
 
     if normalized["station_shortcode"] and not re.fullmatch(r"[A-Za-z0-9_-]+", normalized["station_shortcode"]):
         errors.append("Station shortcode may only contain letters, numbers, underscores, and hyphens.")
@@ -241,6 +265,7 @@ def config_from_environment():
         station_shortcode=clean_text(os.getenv("AZURACAST_STATION_SHORTCODE")),
         station_id=clean_text(os.getenv("AZURACAST_STATION_ID")),
         streamer_id=clean_text(os.getenv("AZURACAST_STREAMER_ID")) or "1",
+        transcode_poll_interval_minutes=5,
         station_name=clean_text(os.getenv("AZURACAST_STATION_NAME")),
         nowplaying_url=clean_text(os.getenv("AZURACAST_NOWPLAYING_URL")),
         podcast_feed_url=clean_text(os.getenv("AZURACAST_PODCAST_FEED_URL")),
@@ -255,6 +280,7 @@ def config_from_row(row):
         station_shortcode=row["station_shortcode"],
         station_id=row["station_id"],
         streamer_id=row["streamer_id"] or "1",
+        transcode_poll_interval_minutes=row["transcode_poll_interval_minutes"] or 5,
         station_name=row["station_name"],
         nowplaying_url=row["nowplaying_url"],
         podcast_feed_url=row["podcast_feed_url"],
