@@ -10,6 +10,7 @@ PIPELINE_STEP_KEYS = (
 PIPELINE_STATUSES = (
     "pending",
     "waiting",
+    "waiting_transcode",
     "in_progress",
     "success",
     "failed",

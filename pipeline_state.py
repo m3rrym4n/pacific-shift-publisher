@@ -212,6 +212,40 @@ class PipelineStateStore:
 
         return [self.get_run(row["run_id"]) for row in rows]
 
+    def get_runs_by_step_status(self, step_key, status):
+        self._validate_step_key(step_key)
+        self._validate_status(status)
+        self.initialize()
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT pipeline_runs.run_id
+                FROM pipeline_runs
+                JOIN pipeline_steps
+                  ON pipeline_steps.run_id = pipeline_runs.run_id
+                WHERE pipeline_steps.step_key = ?
+                  AND pipeline_steps.status = ?
+                ORDER BY pipeline_runs.updated_at ASC
+                """,
+                (step_key, status),
+            ).fetchall()
+        return [self.get_run(row["run_id"]) for row in rows]
+
+    def set_recording_reference(self, run_id, recording_reference):
+        self.initialize()
+        if not self.get_run(run_id):
+            raise ValueError(f"Unknown pipeline run: {run_id}")
+        with closing(self.connect()) as connection:
+            connection.execute(
+                """
+                UPDATE pipeline_runs
+                SET recording_reference = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (str(recording_reference), utc_now(), run_id),
+            )
+        return self.get_run(run_id)
+
     def find_active_run(self, station=None, streamer=None):
         self.initialize()
         clauses = ["ended_at IS NULL", "overall_status IN ('waiting', 'in_progress')"]
@@ -412,7 +446,10 @@ class PipelineStateStore:
         event_details = sanitize_log_value(error_details)
         stored_error_details = self._serialize_error_details(event_details)
         error_summary = sanitize_log_value(message or stored_error_details) if status == "failed" else None
-        overall_status = "failed" if status == "failed" else existing["overall_status"]
+        if status == "failed":
+            overall_status = "failed"
+        else:
+            overall_status = existing["overall_status"]
         tracklist_status = status if step_key == "acquire_tracklist" else existing["tracklist_status"]
 
         with closing(self.connect()) as connection:
@@ -472,6 +509,7 @@ class PipelineStateStore:
             "failed": f"{step_key}.failed",
             "skipped": f"{step_key}.skipped",
             "waiting": f"{step_key}.waiting",
+            "waiting_transcode": f"{step_key}.waiting_transcode",
             "pending": f"{step_key}.pending",
         }
         StructuredPipelineLogger(self.db_path).emit(

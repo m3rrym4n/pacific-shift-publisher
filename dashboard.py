@@ -15,6 +15,7 @@ STEP_LABELS = {
 STATUS_CLASSES = {
     "pending": "secondary",
     "waiting": "azure",
+    "waiting_transcode": "azure",
     "in_progress": "warning",
     "success": "success",
     "failed": "danger",
@@ -24,6 +25,7 @@ STATUS_CLASSES = {
 STATUS_TEXT = {
     "pending": "Pending",
     "waiting": "Waiting",
+    "waiting_transcode": "Waiting for Transcode",
     "in_progress": "In Progress",
     "success": "Success",
     "failed": "Failed",

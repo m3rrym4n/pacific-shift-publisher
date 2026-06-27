@@ -271,7 +271,7 @@ This helper prepares description content only. It does not fetch recordings, ass
 
 # AzuraCast Podcast RSS Source
 
-Publisher stores a configured AzuraCast podcast RSS source at `/settings/source`. This is the source issue #30 should use to locate the published AzuraCast podcast enclosure before acquiring audio for a Castopod draft.
+Publisher stores a configured AzuraCast podcast RSS source at `/settings/source` for RSS inspection and future source workflows. Streamer-broadcast audio acquisition does not depend on this source.
 
 The source configuration is persisted in the Publisher state database and supports:
 
@@ -287,7 +287,30 @@ latest parsed item and enclosure metadata
 
 Use the `/settings/source` page to save the feed URL and trigger a manual refresh. Refreshing fetches the configured RSS feed, parses item title, publication date, GUID/stable ID, enclosure URL, enclosure type, and enclosure length, then stores recent parsed items for later pipeline use. Refresh success/failure is logged as structured pipeline events under the `acquire_mp3` step with event names such as `rss_source.refresh_succeeded` and `rss_source.refresh_failed`.
 
-This source setup does not download MP3 files, call Castopod, perform AzuraCast API readiness checks, or create podcast drafts. Those behaviors remain future pipeline work.
+This source setup does not download MP3 files, call Castopod, perform AzuraCast API readiness checks, or create podcast drafts.
+
+## AzuraCast Streamer Broadcast Audio
+
+After a stream ends, Publisher matches the completed run window against:
+
+```text
+GET /api/station/{station_id}/streamer/{streamer_id}/broadcasts
+```
+
+Both broadcast start and end timestamps must be within 60 seconds of the run
+window. Publisher stores the matched broadcast ID in `recording_reference`. A
+null `recording` value places `acquire_mp3` in `waiting_transcode`; a recording
+object with `downloadUrl` is downloaded directly with the configured AzuraCast
+API key, validated, and passed to the existing Castopod draft helper.
+
+Run one persistent-state sync cycle with:
+
+```bash
+python -m pipeline_transcode_sync
+```
+
+Deployment scheduling should invoke this command every five minutes. The task
+does not create threads or keep in-memory polling state.
 
 ---
 

@@ -70,7 +70,8 @@ class AzuraCastConnectionTest(unittest.TestCase):
             http_get.call_args.args[0],
             "https://azuracast.example/api/station/12/streamer/34/broadcasts",
         )
-        self.assertEqual(http_get.call_args.kwargs["headers"]["Authorization"], "Bearer managed-api-secret")
+        self.assertEqual(http_get.call_args.kwargs["headers"]["X-API-Key"], "managed-api-secret")
+        self.assertNotIn("Authorization", http_get.call_args.kwargs["headers"])
         self.assertNotIn("managed-api-secret", str(result))
         config = self.store.get_config()
         self.assertIsNotNone(config.last_successful_check_at)

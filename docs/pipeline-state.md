@@ -68,11 +68,17 @@ Allowed statuses:
 ```text
 pending
 waiting
+waiting_transcode
 in_progress
 success
 failed
 skipped
 ```
+
+`waiting_transcode` is used by `acquire_mp3` after a matching AzuraCast streamer
+broadcast is found but its `recording` field is still null. The matched broadcast
+ID is persisted in `recording_reference` so a later sync cycle can resume without
+repeating session matching.
 
 Future webhook, dashboard, run-history, and structured-log issues should call the service functions in `pipeline_state.py` rather than writing run state directly.
 

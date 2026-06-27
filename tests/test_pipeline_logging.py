@@ -158,7 +158,7 @@ class StructuredPipelineLoggerTest(unittest.TestCase):
     def test_required_statuses_are_supported(self):
         self.assertEqual(
             set(PIPELINE_STATUSES),
-            {"pending", "waiting", "in_progress", "success", "failed", "skipped"},
+            {"pending", "waiting", "waiting_transcode", "in_progress", "success", "failed", "skipped"},
         )
 
 

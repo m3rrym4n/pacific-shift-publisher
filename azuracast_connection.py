@@ -34,7 +34,7 @@ def test_azuracast_connection(store=None, http_get=None, timeout=DEFAULT_TIMEOUT
     try:
         response = http_get(
             endpoint,
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers={"X-API-Key": api_key},
             timeout=timeout,
         )
     except requests.RequestException as exc:

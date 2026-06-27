@@ -195,8 +195,18 @@ class PipelineStateStoreTest(unittest.TestCase):
     def test_required_statuses_are_represented(self):
         self.assertEqual(
             set(PIPELINE_STATUSES),
-            {"pending", "waiting", "in_progress", "success", "failed", "skipped"},
+            {"pending", "waiting", "waiting_transcode", "in_progress", "success", "failed", "skipped"},
         )
+
+    def test_waiting_transcode_run_can_be_found_with_recording_reference(self):
+        run = self.store.create_run(session_id="transcode")
+        self.store.set_recording_reference(run["run_id"], "broadcast-123")
+        self.store.update_step_status(run["run_id"], "acquire_mp3", "waiting_transcode")
+
+        matches = self.store.get_runs_by_step_status("acquire_mp3", "waiting_transcode")
+
+        self.assertEqual([item["run_id"] for item in matches], [run["run_id"]])
+        self.assertEqual(matches[0]["recording_reference"], "broadcast-123")
 
     def _step(self, run, step_key):
         return next(step for step in run["steps"] if step["step_key"] == step_key)

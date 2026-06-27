@@ -9,10 +9,6 @@ from azuracast_config import AzuraCastConfigStore
 from pipeline_logging import StructuredPipelineLogger
 from pipeline_retry import can_retry_run, retry_pipeline_run
 from pipeline_state import PipelineStateStore
-from rss_source import RssSourceStore
-
-
-PODCAST_ID = "1f1712f1-14a4-6b16-b7b6-8b09cdf2c9b3"
 
 
 class FakeResponse:
@@ -114,12 +110,7 @@ class PipelineRetryTest(unittest.TestCase):
                 "base_url": "https://azuracast.example",
                 "station_shortcode": "storm_surge",
                 "station_id": "1",
-            }
-        )
-        RssSourceStore(self.db_path).save_config(
-            {
-                "enabled": True,
-                "feed_url": f"https://azuracast.example/api/station/storm_surge/public/podcast/{PODCAST_ID}/episodes",
+                "streamer_id": "1",
             }
         )
         os.environ.pop("AZURACAST_API_KEY", None)
@@ -129,9 +120,9 @@ class PipelineRetryTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         acquire_mp3 = self._step(result["run"], "acquire_mp3")
         self.assertEqual(acquire_mp3["status"], "failed")
-        self.assertIn("AZURACAST_API_KEY is not configured", acquire_mp3["message"])
+        self.assertIn("AzuraCast API key is not configured", acquire_mp3["message"])
 
-    def test_retry_uses_corrected_podcast_readiness_endpoint(self):
+    def test_retry_uses_streamer_broadcast_endpoint(self):
         run = self._failed_retryable_run("retry-url")
         AzuraCastConfigStore(self.db_path).save_config(
             {
@@ -139,27 +130,19 @@ class PipelineRetryTest(unittest.TestCase):
                 "base_url": "https://azuracast.example",
                 "station_shortcode": "storm_surge",
                 "station_id": "1",
-            }
-        )
-        RssSourceStore(self.db_path).save_config(
-            {
-                "enabled": True,
-                "feed_url": f"https://azuracast.example/api/station/storm_surge/public/podcast/{PODCAST_ID}/episodes",
-                "podcast_identifier": "storm_surge",
+                "streamer_id": "1",
             }
         )
         http_get = Mock(
             return_value=FakeResponse(
-                payload={
-                    "episodes": [
-                        {
-                            "id": "ep-1",
-                            "is_published": True,
-                            "has_media": True,
-                            "podcast_id": PODCAST_ID,
-                        }
-                    ]
-                }
+                payload=[
+                    {
+                        "id": "broadcast-1",
+                        "timestampStart": "2026-06-25T22:00:00Z",
+                        "timestampEnd": "2026-06-25T23:00:00Z",
+                        "recording": None,
+                    }
+                ]
             )
         )
 
@@ -169,25 +152,29 @@ class PipelineRetryTest(unittest.TestCase):
         called_url = http_get.call_args_list[0].args[0]
         self.assertEqual(
             called_url,
-            f"https://azuracast.example/api/station/1/podcast/{PODCAST_ID}/episodes",
+            "https://azuracast.example/api/station/1/streamer/1/broadcasts",
         )
-        self.assertNotIn("/podcasts/storm_surge/episodes", called_url)
+        self.assertNotIn("podcast", called_url)
+        self.assertEqual(http_get.call_args.kwargs["headers"], {"X-API-Key": "azuracast-secret"})
+        updated = self.store.get_run(run["run_id"])
+        self.assertEqual(updated["recording_reference"], "broadcast-1")
+        self.assertEqual(self._step(updated, "acquire_mp3")["status"], "waiting_transcode")
 
-    def test_retry_no_matching_enclosure_records_clear_failure(self):
-        run = self._failed_retryable_run("no-enclosure")
+    def test_retry_no_matching_broadcast_records_clear_failure(self):
+        run = self._failed_retryable_run("no-broadcast")
 
         result = retry_pipeline_run(
             run["run_id"],
             self.store,
             event_store=self.events,
-            mp3_runner=self._mp3_no_matching_enclosure,
+            mp3_runner=self._mp3_no_matching_broadcast,
             tracklist_runner=Mock(),
         )
 
         self.assertFalse(result["ok"])
         acquire_mp3 = self._step(result["run"], "acquire_mp3")
         self.assertEqual(acquire_mp3["status"], "failed")
-        self.assertIn("No matching RSS enclosure", acquire_mp3["message"])
+        self.assertIn("No matching AzuraCast broadcast", acquire_mp3["message"])
 
     def test_retry_skips_mp3_when_castopod_draft_already_exists(self):
         run = self._failed_retryable_run("draft-exists")
@@ -246,7 +233,7 @@ class PipelineRetryTest(unittest.TestCase):
             run_id,
             "acquire_mp3",
             "success",
-            message="AzuraCast podcast audio acquired and Castopod draft created.",
+            message="AzuraCast broadcast audio acquired and Castopod draft created.",
             error_details={"audio_size_bytes": 12345},
         )
         with store.connect() as connection:
@@ -268,11 +255,11 @@ class PipelineRetryTest(unittest.TestCase):
             message="MP3 acquisition failed: MP3 download failed.",
         )
 
-    def _mp3_no_matching_enclosure(self, run_id, store, event_store=None):
+    def _mp3_no_matching_broadcast(self, run_id, store, event_store=None):
         return store.mark_step_failed(
             run_id,
             "acquire_mp3",
-            message="MP3 acquisition failed: No matching RSS enclosure was found for the completed session.",
+            message="MP3 acquisition failed: No matching AzuraCast broadcast was found for the completed session.",
         )
 
     def _step(self, run, step_key):

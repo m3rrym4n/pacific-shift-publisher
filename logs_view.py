@@ -56,6 +56,7 @@ BLOCKED_DETAIL_KEYS = {
 STATUS_CLASSES = {
     "pending": "secondary",
     "waiting": "info",
+    "waiting_transcode": "info",
     "in_progress": "warning",
     "success": "success",
     "failed": "danger",
