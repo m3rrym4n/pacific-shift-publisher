@@ -1,6 +1,6 @@
 # Pacific Shift Labs Codex Prompt Standard
 
-Version: 1.4
+Version: 1.5
 Status: Active
 Applies To: Pacific Shift Publisher and future Pacific Shift Labs projects
 
@@ -184,6 +184,27 @@ docker run --rm -p 8000:8000 --name publisher-<issue-id> pacific-shift-publisher
 
 If the app requires environment variables to start, inspect existing repo docs and use the minimum safe Docker command needed. Do not branch into optional validation paths unless the first valid path fails.
 
+### 4.5 Codex Runner Workspace Setup (Known Environment Facts)
+
+These are confirmed, recurring facts about the `codex-runner` container's environment — not assumptions to re-verify each dispatch. Rediscovering them wastes execution time; the fixes below are already proven to work.
+
+- **The workspace root is not empty.** Runner-managed directories (`.git`, `.agents`, `.codex`, and similar) already exist at the workspace root. `git clone <repo> .` will fail because the target is non-empty. **Fix:** clone into a named subdirectory instead (e.g. `git clone <repo-url> <repo-name>`), then work inside that subdirectory.
+- **The root `.git` directory, if one exists at the workspace root, is read-only.** Do not attempt `git init` or any git operation directly against the workspace root's own git metadata. **Fix:** all git operations happen inside the cloned subdirectory, which has its own writable `.git`.
+- **The global git config is read-only.** Commands that write to it (`git config --global ...`, `gh auth setup-git`, credential helper setup) will fail against the default location. **Fix:** set `GIT_CONFIG_GLOBAL=/tmp/<repo-name>-gitconfig` (or an equivalent repo-scoped path) before any git operation that needs identity or credential configuration, and configure identity/credentials into that file instead of the default global location.
+
+None of these indicate a broken environment — they are the container's normal, expected state. Apply the fixes directly rather than treating them as blockers to investigate.
+
+### 4.6 Browser-Based UI Verification (When Used)
+
+If a task's verification genuinely requires exercising real browser interaction (e.g. confirming a click-driven UI control actually works, not just that an HTTP route returns 200), the following has already been proven to work and is preferred over rediscovering it:
+
+- Use Selenium's official Python client rather than constructing raw WebDriver protocol requests by hand — low-level manual requests have produced malformed-protocol errors (HTTP 400) in practice.
+- Add an explicit readiness poll before creating a browser session; connecting too early produces connection-refused errors.
+- Prefer precise, stable selectors (e.g. a full `aria-label` match) over broad ones — broad selectors have matched the wrong element (e.g. an unrelated sidebar toggle) when multiple similar controls exist on a page.
+- If a native pointer-click is intercepted because the target is outside the headless viewport, click via the DOM element's own click handler instead of simulating a physical pointer event. This still exercises the real event handler (e.g. Bootstrap's collapse behavior) and produces a valid verification.
+
+Browser-based verification is not required by default — most tasks are adequately verified via HTTP checks and automated tests. Use this only when a GitHub issue's acceptance criteria genuinely require confirming real UI interaction.
+
 ## 5. Standard Codex Prompt Structure
 
 Every substantial Codex prompt should use numbered sections.
@@ -339,6 +360,8 @@ Avoid:
 - Trying multiple validation approaches when the first standards-compliant path is sufficient
 - Posting secrets, tokens, or credential values to GitHub comments, PR bodies, or commit messages
 - Constructing PR bodies or issue comments as inline shell strings instead of writing the report to a file first
+- Re-discovering the workspace/git environment facts in section 4.5 instead of applying the documented fixes directly
+- Attempting SSH to any host — no SSH access exists; use the local Docker socket directly
 
 ## 11. Pacific Shift Labs Philosophy
 
